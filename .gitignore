@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.test
+coverage/
+*.log
+.DS_Store
+order_test_backup.sql
