@@ -25,7 +25,13 @@ export const findOrderByIdQuery = `
     LIMIT 1
 `;
 
-export const findOrdersByUserIdQuery = `
+export const countOrdersByUserIdQuery = `
+    SELECT COUNT(*) AS total
+    FROM orders
+    WHERE user_id = ?
+`;
+
+export const findOrdersByUserIdPaginatedQuery = `
     SELECT
         id,
         order_number,
@@ -38,6 +44,7 @@ export const findOrdersByUserIdQuery = `
     FROM orders
     WHERE user_id = ?
     ORDER BY created_at DESC, id DESC
+    LIMIT ? OFFSET ?
 `;
 
 export const findOrderItemByIdQuery = `

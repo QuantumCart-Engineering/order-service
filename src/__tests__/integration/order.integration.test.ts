@@ -5,18 +5,27 @@ import pool from "../../config/database";
 
 describe("Order Integration", () => {
     const userId = randomUUID();
-    const productId = "83cb7256-2c66-44aa-90cf-49550570e925";
+    const productId =
+        "83cb7256-2c66-44aa-90cf-49550570e925";
 
     let orderId: string;
 
     beforeAll(async () => {
-        await pool.execute("DELETE FROM order_items");
-        await pool.execute("DELETE FROM orders");
+        await pool.execute(
+            "DELETE FROM order_items"
+        );
+        await pool.execute(
+            "DELETE FROM orders"
+        );
     });
 
     afterAll(async () => {
-        await pool.execute("DELETE FROM order_items");
-        await pool.execute("DELETE FROM orders");
+        await pool.execute(
+            "DELETE FROM order_items"
+        );
+        await pool.execute(
+            "DELETE FROM orders"
+        );
         await pool.end();
     });
 
@@ -43,9 +52,13 @@ describe("Order Integration", () => {
                 })
             );
 
-            expect(response.body.data.items).toHaveLength(1);
+            expect(
+                response.body.data.items
+            ).toHaveLength(1);
 
-            expect(response.body.data.items[0]).toEqual(
+            expect(
+                response.body.data.items[0]
+            ).toEqual(
                 expect.objectContaining({
                     productId,
                     productName:
@@ -67,29 +80,51 @@ describe("Order Integration", () => {
                 "http://localhost:8003"
             )
                 .get("/api/v1/cart/")
-                .set("x-user-id", cartUserId);
+                .set(
+                    "x-user-id",
+                    cartUserId
+                );
 
-            expect(cartResponse.status).toBe(200);
-            expect(cartResponse.body.success).toBe(true);
+            expect(
+                cartResponse.status
+            ).toBe(200);
 
-            const cartId = cartResponse.body.data.id;
+            expect(
+                cartResponse.body.success
+            ).toBe(true);
+
+            const cartId =
+                cartResponse.body.data.id;
 
             const addItemResponse = await request(
                 "http://localhost:8003"
             )
-                .post(`/api/v1/cart/${cartId}/items`)
-                .set("x-user-id", cartUserId)
+                .post(
+                    `/api/v1/cart/${cartId}/items`
+                )
+                .set(
+                    "x-user-id",
+                    cartUserId
+                )
                 .send({
                     productId,
                     quantity: 2
                 });
 
-            expect(addItemResponse.status).toBe(201);
-            expect(addItemResponse.body.success).toBe(true);
+            expect(
+                addItemResponse.status
+            ).toBe(201);
+
+            expect(
+                addItemResponse.body.success
+            ).toBe(true);
 
             const response = await request(app)
                 .post("/api/v1/orders")
-                .set("x-user-id", cartUserId)
+                .set(
+                    "x-user-id",
+                    cartUserId
+                )
                 .send({
                     source: "CART"
                 });
@@ -106,9 +141,13 @@ describe("Order Integration", () => {
                 })
             );
 
-            expect(response.body.data.items).toHaveLength(1);
+            expect(
+                response.body.data.items
+            ).toHaveLength(1);
 
-            expect(response.body.data.items[0]).toEqual(
+            expect(
+                response.body.data.items[0]
+            ).toEqual(
                 expect.objectContaining({
                     productId,
                     productName:
@@ -120,11 +159,17 @@ describe("Order Integration", () => {
                 })
             );
 
-            const checkedOutCartResponse = await request(
-                "http://localhost:8003"
-            )
-                .get(`/api/v1/cart/${cartId}`)
-                .set("x-user-id", cartUserId);
+            const checkedOutCartResponse =
+                await request(
+                    "http://localhost:8003"
+                )
+                    .get(
+                        `/api/v1/cart/${cartId}`
+                    )
+                    .set(
+                        "x-user-id",
+                        cartUserId
+                    );
 
             expect(
                 checkedOutCartResponse.status
@@ -150,7 +195,10 @@ describe("Order Integration", () => {
 
             expect(response.status).toBe(401);
             expect(response.body.success).toBe(false);
-            expect(response.body.error.message).toBe(
+
+            expect(
+                response.body.error.message
+            ).toBe(
                 "Authentication required"
             );
         });
@@ -179,22 +227,272 @@ describe("Order Integration", () => {
 
             expect(response.status).toBe(404);
             expect(response.body.success).toBe(false);
-            expect(response.body.error.message).toBe(
-                "Product not found"
-            );
+
+            expect(
+                response.body.error.message
+            ).toBe("Product not found");
         });
     });
 
     describe("GET /api/v1/orders", () => {
-        it("should return orders for the authenticated user", async () => {
+        it("should return orders with default pagination", async () => {
             const response = await request(app)
                 .get("/api/v1/orders")
                 .set("x-user-id", userId);
 
             expect(response.status).toBe(200);
             expect(response.body.success).toBe(true);
-            expect(response.body.data).toHaveLength(1);
-            expect(response.body.data[0].id).toBe(orderId);
+
+            expect(
+                response.body.data
+            ).toHaveLength(1);
+
+            expect(
+                response.body.data[0].id
+            ).toBe(orderId);
+
+            expect(
+                response.body.pagination
+            ).toEqual({
+                page: 1,
+                pageSize: 20,
+                totalItems: 1,
+                totalPages: 1
+            });
+        });
+
+        it("should return paginated orders using custom page size", async () => {
+            const paginationUserId =
+                randomUUID();
+
+            for (let index = 0; index < 3; index++) {
+                const response =
+                    await request(app)
+                        .post(
+                            "/api/v1/orders"
+                        )
+                        .set(
+                            "x-user-id",
+                            paginationUserId
+                        )
+                        .send({
+                            source: "BUY_NOW",
+                            productId,
+                            quantity: 1
+                        });
+
+                expect(
+                    response.status
+                ).toBe(201);
+            }
+
+            const pageOneResponse =
+                await request(app)
+                    .get(
+                        "/api/v1/orders?page=1&pageSize=2"
+                    )
+                    .set(
+                        "x-user-id",
+                        paginationUserId
+                    );
+
+            expect(
+                pageOneResponse.status
+            ).toBe(200);
+
+            expect(
+                pageOneResponse.body.success
+            ).toBe(true);
+
+            expect(
+                pageOneResponse.body.data
+            ).toHaveLength(2);
+
+            expect(
+                pageOneResponse.body.pagination
+            ).toEqual({
+                page: 1,
+                pageSize: 2,
+                totalItems: 3,
+                totalPages: 2
+            });
+
+            const pageTwoResponse =
+                await request(app)
+                    .get(
+                        "/api/v1/orders?page=2&pageSize=2"
+                    )
+                    .set(
+                        "x-user-id",
+                        paginationUserId
+                    );
+
+            expect(
+                pageTwoResponse.status
+            ).toBe(200);
+
+            expect(
+                pageTwoResponse.body.success
+            ).toBe(true);
+
+            expect(
+                pageTwoResponse.body.data
+            ).toHaveLength(1);
+
+            expect(
+                pageTwoResponse.body.pagination
+            ).toEqual({
+                page: 2,
+                pageSize: 2,
+                totalItems: 3,
+                totalPages: 2
+            });
+
+            const pageOneIds =
+                pageOneResponse.body.data.map(
+                    (order: { id: string }) =>
+                        order.id
+                );
+
+            const pageTwoIds =
+                pageTwoResponse.body.data.map(
+                    (order: { id: string }) =>
+                        order.id
+                );
+
+            expect(
+                pageOneIds.some(
+                    (id: string) =>
+                        pageTwoIds.includes(id)
+                )
+            ).toBe(false);
+        });
+
+        it("should return an empty data array when page is beyond the last page", async () => {
+            const response = await request(app)
+                .get(
+                    "/api/v1/orders?page=2&pageSize=20"
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
+
+            expect(response.status).toBe(200);
+            expect(response.body.success).toBe(true);
+
+            expect(
+                response.body.data
+            ).toEqual([]);
+
+            expect(
+                response.body.pagination
+            ).toEqual({
+                page: 2,
+                pageSize: 20,
+                totalItems: 1,
+                totalPages: 1
+            });
+        });
+
+        it("should reject an invalid page", async () => {
+            const response = await request(app)
+                .get(
+                    "/api/v1/orders?page=abc"
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
+
+            expect(response.status).toBe(400);
+            expect(response.body.success).toBe(false);
+
+            expect(
+                response.body.error.message
+            ).toBe(
+                "Page must be a positive integer"
+            );
+        });
+
+        it("should reject page zero", async () => {
+            const response = await request(app)
+                .get(
+                    "/api/v1/orders?page=0"
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
+
+            expect(response.status).toBe(400);
+            expect(response.body.success).toBe(false);
+
+            expect(
+                response.body.error.message
+            ).toBe(
+                "Page must be a positive integer"
+            );
+        });
+
+        it("should reject an invalid page size", async () => {
+            const response = await request(app)
+                .get(
+                    "/api/v1/orders?pageSize=abc"
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
+
+            expect(response.status).toBe(400);
+            expect(response.body.success).toBe(false);
+
+            expect(
+                response.body.error.message
+            ).toBe(
+                "Page size must be a positive integer"
+            );
+        });
+
+        it("should reject page size zero", async () => {
+            const response = await request(app)
+                .get(
+                    "/api/v1/orders?pageSize=0"
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
+
+            expect(response.status).toBe(400);
+            expect(response.body.success).toBe(false);
+
+            expect(
+                response.body.error.message
+            ).toBe(
+                "Page size must be a positive integer"
+            );
+        });
+
+        it("should reject page size above 100", async () => {
+            const response = await request(app)
+                .get(
+                    "/api/v1/orders?pageSize=101"
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
+
+            expect(response.status).toBe(400);
+            expect(response.body.success).toBe(false);
+
+            expect(
+                response.body.error.message
+            ).toBe(
+                "Page size cannot exceed 100"
+            );
         });
 
         it("should reject unauthenticated requests", async () => {
@@ -209,7 +507,9 @@ describe("Order Integration", () => {
     describe("GET /api/v1/orders/:orderId", () => {
         it("should reject unauthenticated requests", async () => {
             const response = await request(app)
-                .get(`/api/v1/orders/${randomUUID()}`);
+                .get(
+                    `/api/v1/orders/${randomUUID()}`
+                );
 
             expect(response.status).toBe(401);
             expect(response.body.success).toBe(false);
@@ -217,8 +517,13 @@ describe("Order Integration", () => {
 
         it("should return 404 for an unknown order", async () => {
             const response = await request(app)
-                .get(`/api/v1/orders/${randomUUID()}`)
-                .set("x-user-id", userId);
+                .get(
+                    `/api/v1/orders/${randomUUID()}`
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
 
             expect(response.status).toBe(404);
             expect(response.body.success).toBe(false);
@@ -226,8 +531,13 @@ describe("Order Integration", () => {
 
         it("should return the created order with its items", async () => {
             const response = await request(app)
-                .get(`/api/v1/orders/${orderId}`)
-                .set("x-user-id", userId);
+                .get(
+                    `/api/v1/orders/${orderId}`
+                )
+                .set(
+                    "x-user-id",
+                    userId
+                );
 
             expect(response.status).toBe(200);
             expect(response.body.success).toBe(true);
@@ -242,9 +552,13 @@ describe("Order Integration", () => {
                 })
             );
 
-            expect(response.body.data.items).toHaveLength(1);
+            expect(
+                response.body.data.items
+            ).toHaveLength(1);
 
-            expect(response.body.data.items[0]).toEqual(
+            expect(
+                response.body.data.items[0]
+            ).toEqual(
                 expect.objectContaining({
                     productId,
                     quantity: 2,
@@ -256,8 +570,13 @@ describe("Order Integration", () => {
 
         it("should not allow another user to access the order", async () => {
             const response = await request(app)
-                .get(`/api/v1/orders/${orderId}`)
-                .set("x-user-id", randomUUID());
+                .get(
+                    `/api/v1/orders/${orderId}`
+                )
+                .set(
+                    "x-user-id",
+                    randomUUID()
+                );
 
             expect(response.status).toBe(404);
             expect(response.body.success).toBe(false);
