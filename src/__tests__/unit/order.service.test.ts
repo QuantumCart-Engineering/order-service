@@ -2,7 +2,8 @@ import {
     getProductById
 } from "../../clients/product.client";
 import {
-    getActiveCart
+    getActiveCart,
+    checkoutCart
 } from "../../clients/cart.client";
 import {
     createOrder,
@@ -22,6 +23,7 @@ jest.mock("../../repositories/order.repository");
 
 const mockedGetProductById = jest.mocked(getProductById);
 const mockedGetActiveCart = jest.mocked(getActiveCart);
+const mockedCheckoutCart = jest.mocked(checkoutCart);
 const mockedCreateOrder = jest.mocked(createOrder);
 const mockedFindOrderById = jest.mocked(findOrderById);
 const mockedFindOrderItems = jest.mocked(findOrderItems);
@@ -112,6 +114,7 @@ describe("Order Service", () => {
             });
 
             expect(mockedCreateOrder).not.toHaveBeenCalled();
+            expect(mockedCheckoutCart).not.toHaveBeenCalled();
         });
 
         it("should create an order from cart items", async () => {
@@ -162,6 +165,8 @@ describe("Order Service", () => {
                 })
             );
 
+            mockedCheckoutCart.mockResolvedValue();
+
             const result = await createNewOrder(
                 "user-1",
                 {
@@ -194,9 +199,69 @@ describe("Order Service", () => {
                 ])
             );
 
+            expect(mockedCheckoutCart).toHaveBeenCalledWith(
+                "cart-1",
+                "user-1"
+            );
+
             expect(result.subtotal).toBe(250);
             expect(result.total).toBe(250);
             expect(result.items).toHaveLength(2);
+        });
+
+        it("should propagate cart checkout failure after order creation", async () => {
+            mockedGetActiveCart.mockResolvedValue({
+                id: "cart-1",
+                userId: "user-1",
+                status: "ACTIVE",
+                items: [
+                    {
+                        id: "item-1",
+                        productId: "product-1",
+                        quantity: 2
+                    }
+                ]
+            });
+
+            mockedGetProductById.mockResolvedValue({
+                id: "product-1",
+                name: "Product One",
+                sku: "SKU-001",
+                price: 100,
+                status: "ACTIVE"
+            });
+
+            mockedCreateOrder.mockImplementation(
+                async (order) => ({
+                    id: order.id,
+                    orderNumber: order.orderNumber,
+                    userId: order.userId,
+                    status: order.status,
+                    subtotal: order.subtotal,
+                    total: order.total,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                })
+            );
+
+            mockedCheckoutCart.mockRejectedValue(
+                new Error("Cart service unavailable")
+            );
+
+            await expect(
+                createNewOrder("user-1", {
+                    source: "CART"
+                })
+            ).rejects.toThrow(
+                "Cart service unavailable"
+            );
+
+            expect(mockedCreateOrder).toHaveBeenCalled();
+
+            expect(mockedCheckoutCart).toHaveBeenCalledWith(
+                "cart-1",
+                "user-1"
+            );
         });
     });
 
