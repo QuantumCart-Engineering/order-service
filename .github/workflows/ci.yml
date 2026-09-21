@@ -254,17 +254,22 @@ jobs:
                   status
                 ) VALUES (
                   '83cb7256-2c66-44aa-90cf-49550570e925',
-                  'CI-SEED-PRODUCT',
-                  'CI Seed Product',
-                  'ci-seed-product',
+                  'MULTI-SKU-1787560139819',
+                  'Multi Category Product 1787560139819',
+                  'multi-category-product-1787560139819',
                   'CI seeded integration test product',
-                  9999.00,
+                  49999.00,
                   'INR',
                   100,
                   'ACTIVE'
                 )
                 ON DUPLICATE KEY UPDATE
-                  name = 'CI Seed Product'
+                  sku = 'MULTI-SKU-1787560139819',
+                  name = 'Multi Category Product 1787560139819',
+                  slug = 'multi-category-product-1787560139819',
+                  price = 49999.00,
+                  stock_quantity = 100,
+                  status = 'ACTIVE'
               "
 
       # =========================
@@ -376,8 +381,6 @@ jobs:
       # TypeScript check
       # =========================
       - name: TypeScript check
-        env:
-          NODE_ENV: test
         run: npx tsc --noEmit
 
       # =========================
@@ -397,16 +400,6 @@ jobs:
       - name: Run integration tests
         env:
           NODE_ENV: test
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3309
-          DB_USER: ${{ secrets.DB_TEST_USER }}
-          DB_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
-          DB_NAME: quantumcart_orders_test
-          DB_CONNECTION_LIMIT: 10
-          DB_ROOT_USER: root
-          DB_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
-          PRODUCT_SERVICE_URL: http://127.0.0.1:8002
-          CART_SERVICE_URL: http://127.0.0.1:8003
         run: npm run test:integration
 
       # =========================
@@ -415,16 +408,6 @@ jobs:
       - name: Run test coverage
         env:
           NODE_ENV: test
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3309
-          DB_USER: ${{ secrets.DB_TEST_USER }}
-          DB_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
-          DB_NAME: quantumcart_orders_test
-          DB_CONNECTION_LIMIT: 10
-          DB_ROOT_USER: root
-          DB_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
-          PRODUCT_SERVICE_URL: http://127.0.0.1:8002
-          CART_SERVICE_URL: http://127.0.0.1:8003
         run: npm run test:coverage -- --runInBand
 
       # =========================
