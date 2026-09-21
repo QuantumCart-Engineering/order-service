@@ -35,9 +35,9 @@ export interface Order {
     orderNumber: string;
     userId: string;
     status:
-    | "PENDING_PAYMENT"
-    | "CONFIRMED"
-    | "CANCELLED";
+        | "PENDING_PAYMENT"
+        | "CONFIRMED"
+        | "CANCELLED";
     subtotal: number;
     total: number;
     createdAt: Date;
@@ -129,7 +129,8 @@ const validateQuantity = (
 const createCartOrder = async (
     userId: string,
     cartId: string,
-    cartItems: CartItem[]
+    cartItems: CartItem[],
+    idempotencyKey: string | null
 ): Promise<Order> => {
     if (cartItems.length === 0) {
         throw new AppError(
@@ -186,7 +187,7 @@ const createCartOrder = async (
                     "PENDING_PAYMENT",
                 subtotal,
                 total: subtotal,
-                idempotencyKey: null
+                idempotencyKey
             },
             orderItems
         );
@@ -220,7 +221,8 @@ const createCartOrder = async (
 const createBuyNowOrder = async (
     userId: string,
     productId: string,
-    quantity: number
+    quantity: number,
+    idempotencyKey: string | null
 ): Promise<Order> => {
     validateQuantity(quantity);
 
@@ -259,7 +261,7 @@ const createBuyNowOrder = async (
                     "PENDING_PAYMENT",
                 subtotal,
                 total: subtotal,
-                idempotencyKey: null
+                idempotencyKey
             },
             [orderItem]
         );
@@ -290,7 +292,6 @@ export const createNewOrder = async (
     dto: CreateOrderDto,
     idempotencyKey: string | null
 ): Promise<Order> => {
-
     if (idempotencyKey) {
         const existingOrder =
             await findOrderByUserIdAndIdempotencyKey(
@@ -324,14 +325,16 @@ export const createNewOrder = async (
         return createCartOrder(
             userId,
             cart.id,
-            cart.items
+            cart.items,
+            idempotencyKey
         );
     }
 
     return createBuyNowOrder(
         userId,
         dto.productId,
-        dto.quantity
+        dto.quantity,
+        idempotencyKey
     );
 };
 
