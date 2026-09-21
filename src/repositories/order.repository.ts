@@ -1,12 +1,17 @@
-import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import type {
+    ResultSetHeader,
+    RowDataPacket
+} from "mysql2/promise";
 import pool from "../config/database";
 import {
     createOrderItemQuery,
     createOrderQuery,
     findOrderByIdQuery,
     findOrderItemsQuery,
-    findOrdersByUserIdQuery,
-    updateOrderStatusQuery
+    findOrdersByUserIdPaginatedQuery,
+    countOrdersByUserIdQuery,
+    updateOrderStatusQuery,
+    findOrderByUserIdAndIdempotencyKeyQuery
 } from "../queries/order.queries";
 
 export interface OrderRecord {
@@ -55,6 +60,10 @@ interface OrderItemRow extends RowDataPacket {
     created_at: Date;
 }
 
+interface CountRow extends RowDataPacket {
+    total: number | string;
+}
+
 export interface CreateOrderData {
     id: string;
     orderNumber: string;
@@ -62,6 +71,7 @@ export interface CreateOrderData {
     status: OrderRecord["status"];
     subtotal: number;
     total: number;
+    idempotencyKey: string | null;
 }
 
 export interface CreateOrderItemData {
@@ -75,6 +85,11 @@ export interface CreateOrderItemData {
     lineTotal: number;
 }
 
+export interface PaginatedOrders {
+    orders: OrderRecord[];
+    totalItems: number;
+}
+
 const mapOrder = (row: OrderRow): OrderRecord => ({
     id: row.id,
     orderNumber: row.order_number,
@@ -86,7 +101,9 @@ const mapOrder = (row: OrderRow): OrderRecord => ({
     updatedAt: row.updated_at
 });
 
-const mapOrderItem = (row: OrderItemRow): OrderItemRecord => ({
+const mapOrderItem = (
+    row: OrderItemRow
+): OrderItemRecord => ({
     id: row.id,
     orderId: row.order_id,
     productId: row.product_id,
@@ -115,7 +132,8 @@ export const createOrder = async (
                 order.userId,
                 order.status,
                 order.subtotal,
-                order.total
+                order.total,
+                order.idempotencyKey
             ]
         );
 
@@ -137,13 +155,16 @@ export const createOrder = async (
 
         await connection.commit();
 
-        const [rows] = await connection.execute<OrderRow[]>(
-            findOrderByIdQuery,
-            [order.id]
-        );
+        const [rows] =
+            await connection.execute<OrderRow[]>(
+                findOrderByIdQuery,
+                [order.id]
+            );
 
         if (rows.length === 0) {
-            throw new Error("Created order could not be retrieved");
+            throw new Error(
+                "Created order could not be retrieved"
+            );
         }
 
         return mapOrder(rows[0]);
@@ -170,15 +191,49 @@ export const findOrderById = async (
     return mapOrder(rows[0]);
 };
 
-export const findOrdersByUserId = async (
-    userId: string
-): Promise<OrderRecord[]> => {
-    const [rows] = await pool.execute<OrderRow[]>(
-        findOrdersByUserIdQuery,
-        [userId]
-    );
+export const findOrderByUserIdAndIdempotencyKey = async (
+    userId: string,
+    idempotencyKey: string
+): Promise<OrderRecord | null> => {
+    const [rows] =
+        await pool.execute<OrderRow[]>(
+            findOrderByUserIdAndIdempotencyKeyQuery,
+            [userId, idempotencyKey]
+        );
 
-    return rows.map(mapOrder);
+    if (rows.length === 0) {
+        return null;
+    }
+
+    return mapOrder(rows[0]);
+};
+
+export const findOrdersByUserIdPaginated = async (
+    userId: string,
+    limit: number,
+    offset: number
+): Promise<PaginatedOrders> => {
+    const [orderRows, countRows] =
+        await Promise.all([
+            pool.execute<OrderRow[]>(
+                findOrdersByUserIdPaginatedQuery,
+                [userId, limit, offset]
+            ),
+            pool.execute<CountRow[]>(
+                countOrdersByUserIdQuery,
+                [userId]
+            )
+        ]);
+
+    const [rows] = orderRows;
+    const [countResult] = countRows;
+
+    return {
+        orders: rows.map(mapOrder),
+        totalItems: Number(
+            countResult[0]?.total ?? 0
+        )
+    };
 };
 
 export const findOrderItems = async (
@@ -196,10 +251,11 @@ export const updateOrderStatus = async (
     orderId: string,
     status: OrderRecord["status"]
 ): Promise<boolean> => {
-    const [result] = await pool.execute<ResultSetHeader>(
-        updateOrderStatusQuery,
-        [status, orderId]
-    );
+    const [result] =
+        await pool.execute<ResultSetHeader>(
+            updateOrderStatusQuery,
+            [status, orderId]
+        );
 
     return result.affectedRows > 0;
 };
