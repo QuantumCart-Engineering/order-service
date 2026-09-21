@@ -1,0 +1,402 @@
+name: Order Service CI
+
+on:
+  push:
+    branches:
+      - dev
+      - uat
+      - master
+
+  pull_request:
+    branches:
+      - dev
+      - uat
+      - master
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+
+      # =========================
+      # Product MySQL
+      # =========================
+      product-mysql:
+        image: mysql:8.4
+
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          MYSQL_DATABASE: quantumcart_products_test
+          MYSQL_USER: ${{ secrets.DB_TEST_USER }}
+          MYSQL_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
+
+        ports:
+          - 3307:3306
+
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=10s
+
+      # =========================
+      # Cart MySQL
+      # =========================
+      cart-mysql:
+        image: mysql:8.4
+
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          MYSQL_DATABASE: quantumcart_carts_test
+          MYSQL_USER: ${{ secrets.DB_TEST_USER }}
+          MYSQL_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
+
+        ports:
+          - 3308:3306
+
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=10s
+
+      # =========================
+      # Order MySQL
+      # =========================
+      order-mysql:
+        image: mysql:8.4
+
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          MYSQL_DATABASE: quantumcart_orders_test
+          MYSQL_USER: ${{ secrets.DB_TEST_USER }}
+          MYSQL_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
+
+        ports:
+          - 3309:3306
+
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=10s
+
+    steps:
+
+      # =========================
+      # Checkout Order Service
+      # =========================
+      - name: Checkout Order Service
+        uses: actions/checkout@v4
+
+      # =========================
+      # Checkout Product Service
+      # =========================
+      - name: Checkout Product Service
+        uses: actions/checkout@v4
+        with:
+          repository: QuantumCart-Engineering/product-service
+          ref: master
+          path: product-service
+
+      # =========================
+      # Checkout Cart Service
+      # =========================
+      - name: Checkout Cart Service
+        uses: actions/checkout@v4
+        with:
+          repository: QuantumCart-Engineering/cart-service
+          ref: dev
+          path: cart-service
+
+      # =========================
+      # Setup Node.js
+      # =========================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # =========================
+      # Install Product dependencies
+      # =========================
+      - name: Install Product dependencies
+        working-directory: product-service
+        run: npm ci
+
+      # =========================
+      # Install Cart dependencies
+      # =========================
+      - name: Install Cart dependencies
+        working-directory: cart-service
+        run: npm ci
+
+      # =========================
+      # Install Order dependencies
+      # =========================
+      - name: Install Order dependencies
+        run: npm ci
+
+      # =========================
+      # Create Product test environment
+      # =========================
+      - name: Create Product test environment
+        working-directory: product-service
+        run: |
+          cat > .env.test <<EOF
+          NODE_ENV=test
+          PORT=8002
+          DB_HOST=127.0.0.1
+          DB_PORT=3307
+          DB_USER=${{ secrets.DB_TEST_USER }}
+          DB_PASSWORD=${{ secrets.DB_TEST_PASSWORD }}
+          DB_NAME=quantumcart_products_test
+          DB_CONNECTION_LIMIT=10
+          DB_ROOT_USER=root
+          DB_ROOT_PASSWORD=${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          EOF
+
+      # =========================
+      # Build Product Service
+      # =========================
+      - name: Build Product Service
+        working-directory: product-service
+        run: npm run build
+
+      # =========================
+      # Run Product migrations
+      # =========================
+      - name: Run Product migrations
+        working-directory: product-service
+        env:
+          NODE_ENV: test
+        run: npm run migrate
+
+      # =========================
+      # Start Product Service
+      # =========================
+      - name: Start Product Service
+        working-directory: product-service
+        env:
+          NODE_ENV: test
+        run: |
+          nohup npm start > /tmp/product-service.log 2>&1 &
+          echo $! > /tmp/product-service.pid
+
+      # =========================
+      # Wait for Product Service
+      # =========================
+      - name: Wait for Product Service
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8002/health > /dev/null; then
+              echo "Product Service is ready."
+              exit 0
+            fi
+
+            echo "Waiting for Product Service..."
+            sleep 2
+          done
+
+          echo "Product Service failed to start."
+          cat /tmp/product-service.log
+          exit 1
+
+      # =========================
+      # Seed Product test product
+      # =========================
+      - name: Seed Product Service test product
+        run: |
+          PRODUCT_MYSQL_CONTAINER=$(
+            docker ps \
+              --filter "publish=3307" \
+              --format "{{.ID}}"
+          )
+
+          docker exec \
+            -e MYSQL_PWD="${{ secrets.DB_TEST_PASSWORD }}" \
+            "$PRODUCT_MYSQL_CONTAINER" \
+            mysql \
+              -u"${{ secrets.DB_TEST_USER }}" \
+              quantumcart_products_test \
+              -e "
+                INSERT INTO products (
+                  id,
+                  sku,
+                  name,
+                  slug,
+                  description,
+                  price,
+                  currency,
+                  stock_quantity,
+                  status
+                ) VALUES (
+                  '83cb7256-2c66-44aa-90cf-49550570e925',
+                  'CI-SEED-PRODUCT',
+                  'CI Seed Product',
+                  'ci-seed-product',
+                  'CI seeded integration test product',
+                  9999.00,
+                  'INR',
+                  100,
+                  'ACTIVE'
+                )
+                ON DUPLICATE KEY UPDATE
+                  name = 'CI Seed Product'
+              "
+
+      # =========================
+      # Create Cart test environment
+      # =========================
+      - name: Create Cart test environment
+        working-directory: cart-service
+        run: |
+          cat > .env.test <<EOF
+          NODE_ENV=test
+          PORT=8003
+          DB_HOST=127.0.0.1
+          DB_PORT=3308
+          DB_USER=${{ secrets.DB_TEST_USER }}
+          DB_PASSWORD=${{ secrets.DB_TEST_PASSWORD }}
+          DB_NAME=quantumcart_carts_test
+          DB_CONNECTION_LIMIT=10
+          DB_ROOT_USER=root
+          DB_ROOT_PASSWORD=${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          PRODUCT_SERVICE_URL=http://127.0.0.1:8002
+          EOF
+
+      # =========================
+      # Build Cart Service
+      # =========================
+      - name: Build Cart Service
+        working-directory: cart-service
+        run: npm run build
+
+      # =========================
+      # Run Cart migrations
+      # =========================
+      - name: Run Cart migrations
+        working-directory: cart-service
+        env:
+          NODE_ENV: test
+        run: npm run migrate
+
+      # =========================
+      # Start Cart Service
+      # =========================
+      - name: Start Cart Service
+        working-directory: cart-service
+        env:
+          NODE_ENV: test
+        run: |
+          nohup npm start > /tmp/cart-service.log 2>&1 &
+          echo $! > /tmp/cart-service.pid
+
+      # =========================
+      # Wait for Cart Service
+      # =========================
+      - name: Wait for Cart Service
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8003/health > /dev/null; then
+              echo "Cart Service is ready."
+              exit 0
+            fi
+
+            echo "Waiting for Cart Service..."
+            sleep 2
+          done
+
+          echo "Cart Service failed to start."
+          cat /tmp/cart-service.log
+          exit 1
+
+      # =========================
+      # Create Order test environment
+      # =========================
+      - name: Create Order test environment
+        run: |
+          cat > .env.test <<EOF
+          NODE_ENV=test
+          PORT=8004
+          DB_HOST=127.0.0.1
+          DB_PORT=3309
+          DB_USER=${{ secrets.DB_TEST_USER }}
+          DB_PASSWORD=${{ secrets.DB_TEST_PASSWORD }}
+          DB_NAME=quantumcart_orders_test
+          DB_CONNECTION_LIMIT=10
+          DB_ROOT_USER=root
+          DB_ROOT_PASSWORD=${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          PRODUCT_SERVICE_URL=http://127.0.0.1:8002
+          CART_SERVICE_URL=http://127.0.0.1:8003
+          EOF
+
+      # =========================
+      # TypeScript check
+      # =========================
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      # =========================
+      # Unit tests
+      # =========================
+      - name: Run unit tests
+        env:
+          NODE_ENV: test
+        run: npm run test:unit -- --runInBand
+
+      # =========================
+      # Integration tests
+      #
+      # test:integration already runs
+      # Order migrations before Jest.
+      # =========================
+      - name: Run integration tests
+        env:
+          NODE_ENV: test
+        run: npm run test:integration
+
+      # =========================
+      # Test coverage
+      # =========================
+      - name: Run test coverage
+        env:
+          NODE_ENV: test
+        run: npm run test:coverage -- --runInBand
+
+      # =========================
+      # Build Order Service
+      # =========================
+      - name: Build Order Service
+        run: npm run build
+
+      # =========================
+      # Build Docker image
+      # =========================
+      - name: Build Order Docker image
+        run: docker build -t quantumcart-order-service:ci .
+
+      # =========================
+      # Product Service logs on failure
+      # =========================
+      - name: Show Product Service logs
+        if: failure()
+        run: |
+          if [ -f /tmp/product-service.log ]; then
+            cat /tmp/product-service.log
+          fi
+
+      # =========================
+      # Cart Service logs on failure
+      # =========================
+      - name: Show Cart Service logs
+        if: failure()
+        run: |
+          if [ -f /tmp/cart-service.log ]; then
+            cat /tmp/cart-service.log
+          fi
