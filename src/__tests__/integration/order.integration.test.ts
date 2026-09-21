@@ -5,8 +5,19 @@ import pool from "../../config/database";
 
 describe("Order Integration", () => {
     const userId = randomUUID();
+
     const productId =
         "83cb7256-2c66-44aa-90cf-49550570e925";
+
+    const productName =
+        "Multi Category Product 1787560139819";
+
+    const productSku =
+        "MULTI-SKU-1787560139819";
+
+    const unitPrice = 49999;
+    const quantity = 2;
+    const lineTotal = unitPrice * quantity;
 
     let orderId: string;
 
@@ -14,6 +25,7 @@ describe("Order Integration", () => {
         await pool.execute(
             "DELETE FROM order_items"
         );
+
         await pool.execute(
             "DELETE FROM orders"
         );
@@ -23,9 +35,11 @@ describe("Order Integration", () => {
         await pool.execute(
             "DELETE FROM order_items"
         );
+
         await pool.execute(
             "DELETE FROM orders"
         );
+
         await pool.end();
     });
 
@@ -37,7 +51,7 @@ describe("Order Integration", () => {
                 .send({
                     source: "BUY_NOW",
                     productId,
-                    quantity: 2
+                    quantity
                 });
 
             expect(response.status).toBe(201);
@@ -47,8 +61,8 @@ describe("Order Integration", () => {
                 expect.objectContaining({
                     userId,
                     status: "PENDING_PAYMENT",
-                    subtotal: 99998,
-                    total: 99998
+                    subtotal: lineTotal,
+                    total: lineTotal
                 })
             );
 
@@ -61,12 +75,11 @@ describe("Order Integration", () => {
             ).toEqual(
                 expect.objectContaining({
                     productId,
-                    productName:
-                        "Multi Category Product 1787560139819",
-                    sku: "MULTI-SKU-1787560139819",
-                    quantity: 2,
-                    unitPrice: 49999,
-                    lineTotal: 99998
+                    productName,
+                    sku: productSku,
+                    quantity,
+                    unitPrice,
+                    lineTotal
                 })
             );
 
@@ -108,7 +121,7 @@ describe("Order Integration", () => {
                 )
                 .send({
                     productId,
-                    quantity: 2
+                    quantity
                 });
 
             expect(
@@ -136,8 +149,8 @@ describe("Order Integration", () => {
                 expect.objectContaining({
                     userId: cartUserId,
                     status: "PENDING_PAYMENT",
-                    subtotal: 99998,
-                    total: 99998
+                    subtotal: lineTotal,
+                    total: lineTotal
                 })
             );
 
@@ -150,12 +163,11 @@ describe("Order Integration", () => {
             ).toEqual(
                 expect.objectContaining({
                     productId,
-                    productName:
-                        "Multi Category Product 1787560139819",
-                    sku: "MULTI-SKU-1787560139819",
-                    quantity: 2,
-                    unitPrice: 49999,
-                    lineTotal: 99998
+                    productName,
+                    sku: productSku,
+                    quantity,
+                    unitPrice,
+                    lineTotal
                 })
             );
 
@@ -547,8 +559,8 @@ describe("Order Integration", () => {
                     id: orderId,
                     userId,
                     status: "PENDING_PAYMENT",
-                    subtotal: 99998,
-                    total: 99998
+                    subtotal: lineTotal,
+                    total: lineTotal
                 })
             );
 
@@ -561,9 +573,9 @@ describe("Order Integration", () => {
             ).toEqual(
                 expect.objectContaining({
                     productId,
-                    quantity: 2,
-                    unitPrice: 49999,
-                    lineTotal: 99998
+                    quantity,
+                    unitPrice,
+                    lineTotal
                 })
             );
         });
