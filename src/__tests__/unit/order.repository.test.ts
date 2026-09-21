@@ -99,7 +99,8 @@ describe("Order Repository", () => {
                     userId: "user-1",
                     status: "PENDING_PAYMENT",
                     subtotal: 250,
-                    total: 250
+                    total: 250,
+                    idempotencyKey: null
                 },
                 [
                     {
@@ -130,7 +131,8 @@ describe("Order Repository", () => {
                     "user-1",
                     "PENDING_PAYMENT",
                     250,
-                    250
+                    250,
+                    null
                 ]
             );
 
@@ -184,7 +186,8 @@ describe("Order Repository", () => {
                         userId: "user-1",
                         status: "PENDING_PAYMENT",
                         subtotal: 100,
-                        total: 100
+                        total: 100,
+                        idempotencyKey: null
                     },
                     [
                         {
@@ -245,7 +248,8 @@ describe("Order Repository", () => {
                         userId: "user-1",
                         status: "PENDING_PAYMENT",
                         subtotal: 100,
-                        total: 100
+                        total: 100,
+                        idempotencyKey: null
                     },
                     [
                         {
@@ -318,7 +322,8 @@ describe("Order Repository", () => {
                         userId: "user-1",
                         status: "PENDING_PAYMENT",
                         subtotal: 100,
-                        total: 100
+                        total: 100,
+                        idempotencyKey: null
                     },
                     [
                         {

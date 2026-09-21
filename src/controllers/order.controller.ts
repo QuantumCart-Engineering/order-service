@@ -58,17 +58,17 @@ const getPaginationParams = (
         pageValue === undefined
             ? DEFAULT_PAGE
             : parsePositiveInteger(
-                  pageValue,
-                  "Page"
-              );
+                pageValue,
+                "Page"
+            );
 
     const pageSize =
         pageSizeValue === undefined
             ? DEFAULT_PAGE_SIZE
             : parsePositiveInteger(
-                  pageSizeValue,
-                  "Page size"
-              );
+                pageSizeValue,
+                "Page size"
+            );
 
     if (pageSize > MAX_PAGE_SIZE) {
         throw new AppError(
@@ -92,9 +92,13 @@ export const createOrder = async (
         const userId = getAuthenticatedUserId(request);
         const dto = request.body as CreateOrderDto;
 
+        const idempotencyKey =
+            request.header("Idempotency-Key") ?? null;
+
         const order = await createNewOrder(
             userId,
-            dto
+            dto,
+            idempotencyKey
         );
 
         response.status(201).json({

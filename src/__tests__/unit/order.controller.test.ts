@@ -29,7 +29,8 @@ describe("Order Controller", () => {
             userId: undefined,
             body: {},
             params: {},
-            query: {}
+            query: {},
+            header: jest.fn().mockReturnValue(null)
         };
 
         response = {
@@ -80,7 +81,8 @@ describe("Order Controller", () => {
 
             expect(mockedCreateNewOrder).toHaveBeenCalledWith(
                 "user-1",
-                request.body
+                request.body,
+                null
             );
 
             expect(response.status).toHaveBeenCalledWith(201);
@@ -135,6 +137,51 @@ describe("Order Controller", () => {
             );
 
             expect(mockedCreateNewOrder).not.toHaveBeenCalled();
+        });
+
+        it("should pass the idempotency key to the service", async () => {
+            request.userId = "user-1";
+
+            request.body = {
+                source: "BUY_NOW",
+                productId: "product-1",
+                quantity: 2
+            };
+
+            request.header = jest
+                .fn()
+                .mockReturnValue("idem-key-123");
+
+            mockedCreateNewOrder.mockResolvedValue({
+                id: "order-1",
+                orderNumber: "QC-001",
+                userId: "user-1",
+                status: "PENDING_PAYMENT",
+                subtotal: 200,
+                total: 200,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                items: []
+            });
+
+            await createOrder(
+                request as Request,
+                response as Response,
+                next
+            );
+
+            expect(request.header).toHaveBeenCalledWith(
+                "Idempotency-Key"
+            );
+
+            expect(mockedCreateNewOrder).toHaveBeenCalledWith(
+                "user-1",
+                request.body,
+                "idem-key-123"
+            );
+
+            expect(response.status).toHaveBeenCalledWith(201);
+            expect(next).not.toHaveBeenCalled();
         });
     });
 
@@ -195,6 +242,7 @@ describe("Order Controller", () => {
 
         it("should use custom page and page size", async () => {
             request.userId = "user-1";
+
             request.query = {
                 page: "3",
                 pageSize: "10"
@@ -230,6 +278,7 @@ describe("Order Controller", () => {
 
         it("should reject an invalid page", async () => {
             request.userId = "user-1";
+
             request.query = {
                 page: "abc"
             };
@@ -255,6 +304,7 @@ describe("Order Controller", () => {
 
         it("should reject page zero", async () => {
             request.userId = "user-1";
+
             request.query = {
                 page: "0"
             };
@@ -276,6 +326,7 @@ describe("Order Controller", () => {
 
         it("should reject decimal page", async () => {
             request.userId = "user-1";
+
             request.query = {
                 page: "1.5"
             };
@@ -297,6 +348,7 @@ describe("Order Controller", () => {
 
         it("should reject an invalid page size", async () => {
             request.userId = "user-1";
+
             request.query = {
                 pageSize: "abc"
             };
@@ -322,6 +374,7 @@ describe("Order Controller", () => {
 
         it("should reject page size zero", async () => {
             request.userId = "user-1";
+
             request.query = {
                 pageSize: "0"
             };
@@ -343,6 +396,7 @@ describe("Order Controller", () => {
 
         it("should reject page size above 100", async () => {
             request.userId = "user-1";
+
             request.query = {
                 pageSize: "101"
             };

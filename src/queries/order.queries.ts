@@ -5,9 +5,10 @@ export const createOrderQuery = `
         user_id,
         status,
         subtotal,
-        total
+        total,
+        idempotency_key
     )
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
 `;
 
 export const findOrderByIdQuery = `
@@ -22,6 +23,22 @@ export const findOrderByIdQuery = `
         updated_at
     FROM orders
     WHERE id = ?
+    LIMIT 1
+`;
+
+export const findOrderByUserIdAndIdempotencyKeyQuery = `
+    SELECT
+        id,
+        order_number,
+        user_id,
+        status,
+        subtotal,
+        total,
+        created_at,
+        updated_at
+    FROM orders
+    WHERE user_id = ?
+      AND idempotency_key = ?
     LIMIT 1
 `;
 

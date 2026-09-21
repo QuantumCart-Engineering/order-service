@@ -57,9 +57,13 @@ describe("Order Service", () => {
             });
 
             await expect(
-                createNewOrder("user-1", {
-                    source: "CART"
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
                 message: "Cart is empty",
                 statusCode: 400
@@ -85,9 +89,13 @@ describe("Order Service", () => {
             });
 
             await expect(
-                createNewOrder("user-1", {
-                    source: "CART"
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
                 message: "Cart is not active",
                 statusCode: 400
@@ -127,7 +135,7 @@ describe("Order Service", () => {
             await expect(
                 createNewOrder("user-1", {
                     source: "CART"
-                })
+                }, null)
             ).rejects.toMatchObject({
                 message:
                     "Product product-1 is inactive",
@@ -198,7 +206,7 @@ describe("Order Service", () => {
                     "user-1",
                     {
                         source: "CART"
-                    }
+                    }, null
                 );
 
             expect(
@@ -286,7 +294,7 @@ describe("Order Service", () => {
             await expect(
                 createNewOrder("user-1", {
                     source: "CART"
-                })
+                }, null)
             ).rejects.toThrow(
                 "Cart service unavailable"
             );
@@ -311,7 +319,7 @@ describe("Order Service", () => {
                     source: "BUY_NOW",
                     productId: "product-1",
                     quantity: 0
-                })
+                }, null)
             ).rejects.toMatchObject({
                 message:
                     "Quantity must be a positive integer",
@@ -341,7 +349,7 @@ describe("Order Service", () => {
                     source: "BUY_NOW",
                     productId: "product-1",
                     quantity: 1
-                })
+                }, null)
             ).rejects.toMatchObject({
                 message: "Product is inactive",
                 statusCode: 400
@@ -381,7 +389,7 @@ describe("Order Service", () => {
                         source: "BUY_NOW",
                         productId: "product-1",
                         quantity: 2
-                    }
+                    }, null
                 );
 
             expect(

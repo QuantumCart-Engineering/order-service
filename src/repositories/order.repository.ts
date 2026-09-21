@@ -1,5 +1,4 @@
 import type {
-    PoolConnection,
     ResultSetHeader,
     RowDataPacket
 } from "mysql2/promise";
@@ -11,7 +10,8 @@ import {
     findOrderItemsQuery,
     findOrdersByUserIdPaginatedQuery,
     countOrdersByUserIdQuery,
-    updateOrderStatusQuery
+    updateOrderStatusQuery,
+    findOrderByUserIdAndIdempotencyKeyQuery
 } from "../queries/order.queries";
 
 export interface OrderRecord {
@@ -71,6 +71,7 @@ export interface CreateOrderData {
     status: OrderRecord["status"];
     subtotal: number;
     total: number;
+    idempotencyKey: string | null;
 }
 
 export interface CreateOrderItemData {
@@ -131,7 +132,8 @@ export const createOrder = async (
                 order.userId,
                 order.status,
                 order.subtotal,
-                order.total
+                order.total,
+                order.idempotencyKey
             ]
         );
 
@@ -181,6 +183,23 @@ export const findOrderById = async (
         findOrderByIdQuery,
         [orderId]
     );
+
+    if (rows.length === 0) {
+        return null;
+    }
+
+    return mapOrder(rows[0]);
+};
+
+export const findOrderByUserIdAndIdempotencyKey = async (
+    userId: string,
+    idempotencyKey: string
+): Promise<OrderRecord | null> => {
+    const [rows] =
+        await pool.execute<OrderRow[]>(
+            findOrderByUserIdAndIdempotencyKeyQuery,
+            [userId, idempotencyKey]
+        );
 
     if (rows.length === 0) {
         return null;

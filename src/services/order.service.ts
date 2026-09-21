@@ -15,7 +15,8 @@ import {
     createOrder,
     findOrderById,
     findOrderItems,
-    findOrdersByUserIdPaginated
+    findOrdersByUserIdPaginated,
+    findOrderByUserIdAndIdempotencyKey
 } from "../repositories/order.repository";
 import { AppError } from "../utils/app-error";
 
@@ -34,9 +35,9 @@ export interface Order {
     orderNumber: string;
     userId: string;
     status:
-        | "PENDING_PAYMENT"
-        | "CONFIRMED"
-        | "CANCELLED";
+    | "PENDING_PAYMENT"
+    | "CONFIRMED"
+    | "CANCELLED";
     subtotal: number;
     total: number;
     createdAt: Date;
@@ -184,7 +185,8 @@ const createCartOrder = async (
                 status:
                     "PENDING_PAYMENT",
                 subtotal,
-                total: subtotal
+                total: subtotal,
+                idempotencyKey: null
             },
             orderItems
         );
@@ -256,7 +258,8 @@ const createBuyNowOrder = async (
                 status:
                     "PENDING_PAYMENT",
                 subtotal,
-                total: subtotal
+                total: subtotal,
+                idempotencyKey: null
             },
             [orderItem]
         );
@@ -284,8 +287,25 @@ const createBuyNowOrder = async (
 
 export const createNewOrder = async (
     userId: string,
-    dto: CreateOrderDto
+    dto: CreateOrderDto,
+    idempotencyKey: string | null
 ): Promise<Order> => {
+
+    if (idempotencyKey) {
+        const existingOrder =
+            await findOrderByUserIdAndIdempotencyKey(
+                userId,
+                idempotencyKey
+            );
+
+        if (existingOrder) {
+            return getUserOrderById(
+                userId,
+                existingOrder.id
+            );
+        }
+    }
+
     if (dto.source === "CART") {
         const cart =
             await getActiveCart(
