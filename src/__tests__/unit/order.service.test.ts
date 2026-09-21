@@ -1,35 +1,77 @@
 import {
     getProductById
 } from "../../clients/product.client";
+
 import {
-    getActiveCart
+    getActiveCart,
+    checkoutCart
 } from "../../clients/cart.client";
+
 import {
     createOrder,
     findOrderById,
     findOrderItems,
-    findOrdersByUserId
+    findOrdersByUserIdPaginated,
+    findOrderByUserIdAndIdempotencyKey
 } from "../../repositories/order.repository";
+
 import {
     createNewOrder,
     getUserOrderById,
-    getUserOrders
+    getUserOrdersPaginated
 } from "../../services/order.service";
 
 jest.mock("../../clients/product.client");
 jest.mock("../../clients/cart.client");
 jest.mock("../../repositories/order.repository");
 
-const mockedGetProductById = jest.mocked(getProductById);
-const mockedGetActiveCart = jest.mocked(getActiveCart);
-const mockedCreateOrder = jest.mocked(createOrder);
-const mockedFindOrderById = jest.mocked(findOrderById);
-const mockedFindOrderItems = jest.mocked(findOrderItems);
-const mockedFindOrdersByUserId = jest.mocked(findOrdersByUserId);
+const mockedGetProductById = jest.mocked(
+    getProductById
+);
+
+const mockedGetActiveCart = jest.mocked(
+    getActiveCart
+);
+
+const mockedCheckoutCart = jest.mocked(
+    checkoutCart
+);
+
+const mockedCreateOrder = jest.mocked(
+    createOrder
+);
+
+const mockedFindOrderById = jest.mocked(
+    findOrderById
+);
+
+const mockedFindOrderItems = jest.mocked(
+    findOrderItems
+);
+
+const mockedFindOrdersByUserIdPaginated =
+    jest.mocked(
+        findOrdersByUserIdPaginated
+    );
+
+const mockedFindOrderByUserIdAndIdempotencyKey =
+    jest.mocked(
+        findOrderByUserIdAndIdempotencyKey
+    );
 
 describe("Order Service", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+
+        /*
+         * Default behavior:
+         * No existing order for an idempotency key.
+         *
+         * Individual idempotency tests can override this
+         * when they specifically need an existing order.
+         */
+        mockedFindOrderByUserIdAndIdempotencyKey
+            .mockResolvedValue(null);
     });
 
     describe("createNewOrder - CART", () => {
@@ -42,15 +84,21 @@ describe("Order Service", () => {
             });
 
             await expect(
-                createNewOrder("user-1", {
-                    source: "CART"
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
                 message: "Cart is empty",
                 statusCode: 400
             });
 
-            expect(mockedCreateOrder).not.toHaveBeenCalled();
+            expect(
+                mockedCreateOrder
+            ).not.toHaveBeenCalled();
         });
 
         it("should reject an inactive cart", async () => {
@@ -68,16 +116,25 @@ describe("Order Service", () => {
             });
 
             await expect(
-                createNewOrder("user-1", {
-                    source: "CART"
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
                 message: "Cart is not active",
                 statusCode: 400
             });
 
-            expect(mockedGetProductById).not.toHaveBeenCalled();
-            expect(mockedCreateOrder).not.toHaveBeenCalled();
+            expect(
+                mockedGetProductById
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedCreateOrder
+            ).not.toHaveBeenCalled();
         });
 
         it("should reject an inactive product", async () => {
@@ -103,15 +160,26 @@ describe("Order Service", () => {
             });
 
             await expect(
-                createNewOrder("user-1", {
-                    source: "CART"
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
-                message: "Product product-1 is inactive",
+                message:
+                    "Product product-1 is inactive",
                 statusCode: 400
             });
 
-            expect(mockedCreateOrder).not.toHaveBeenCalled();
+            expect(
+                mockedCreateOrder
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedCheckoutCart
+            ).not.toHaveBeenCalled();
         });
 
         it("should create an order from cart items", async () => {
@@ -150,9 +218,10 @@ describe("Order Service", () => {
                 });
 
             mockedCreateOrder.mockImplementation(
-                async (order, items) => ({
+                async (order) => ({
                     id: order.id,
-                    orderNumber: order.orderNumber,
+                    orderNumber:
+                        order.orderNumber,
                     userId: order.userId,
                     status: order.status,
                     subtotal: order.subtotal,
@@ -162,21 +231,30 @@ describe("Order Service", () => {
                 })
             );
 
-            const result = await createNewOrder(
-                "user-1",
-                {
-                    source: "CART"
-                }
-            );
+            mockedCheckoutCart.mockResolvedValue();
 
-            expect(mockedGetProductById).toHaveBeenCalledTimes(2);
+            const result =
+                await createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                );
 
-            expect(mockedCreateOrder).toHaveBeenCalledWith(
+            expect(
+                mockedGetProductById
+            ).toHaveBeenCalledTimes(2);
+
+            expect(
+                mockedCreateOrder
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: "user-1",
                     status: "PENDING_PAYMENT",
                     subtotal: 250,
-                    total: 250
+                    total: 250,
+                    idempotencyKey: null
                 }),
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -194,27 +272,198 @@ describe("Order Service", () => {
                 ])
             );
 
+            expect(
+                mockedCheckoutCart
+            ).toHaveBeenCalledWith(
+                "cart-1",
+                "user-1"
+            );
+
             expect(result.subtotal).toBe(250);
             expect(result.total).toBe(250);
             expect(result.items).toHaveLength(2);
+        });
+
+        it("should propagate cart checkout failure after order creation", async () => {
+            mockedGetActiveCart.mockResolvedValue({
+                id: "cart-1",
+                userId: "user-1",
+                status: "ACTIVE",
+                items: [
+                    {
+                        id: "item-1",
+                        productId: "product-1",
+                        quantity: 2
+                    }
+                ]
+            });
+
+            mockedGetProductById.mockResolvedValue({
+                id: "product-1",
+                name: "Product One",
+                sku: "SKU-001",
+                price: 100,
+                status: "ACTIVE"
+            });
+
+            mockedCreateOrder.mockImplementation(
+                async (order) => ({
+                    id: order.id,
+                    orderNumber:
+                        order.orderNumber,
+                    userId: order.userId,
+                    status: order.status,
+                    subtotal: order.subtotal,
+                    total: order.total,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                })
+            );
+
+            mockedCheckoutCart.mockRejectedValue(
+                new Error(
+                    "Cart service unavailable"
+                )
+            );
+
+            await expect(
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "CART"
+                    },
+                    null
+                )
+            ).rejects.toThrow(
+                "Cart service unavailable"
+            );
+
+            expect(
+                mockedCreateOrder
+            ).toHaveBeenCalled();
+
+            expect(
+                mockedCheckoutCart
+            ).toHaveBeenCalledWith(
+                "cart-1",
+                "user-1"
+            );
+        });
+    });
+
+    describe("createNewOrder - Idempotency", () => {
+        it("should return the existing order for a duplicate idempotency key", async () => {
+            const existingOrder = {
+                id: "existing-order-1",
+                orderNumber: "QC-EXISTING-001",
+                userId: "user-1",
+                status: "PENDING_PAYMENT" as const,
+                subtotal: 200,
+                total: 200,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            };
+
+            mockedFindOrderByUserIdAndIdempotencyKey
+                .mockResolvedValue(
+                    existingOrder
+                );
+
+            mockedFindOrderById
+                .mockResolvedValue(
+                    existingOrder
+                );
+
+            mockedFindOrderItems
+                .mockResolvedValue([
+                    {
+                        id: "existing-item-1",
+                        orderId:
+                            "existing-order-1",
+                        productId: "product-1",
+                        productName:
+                            "Test Product",
+                        sku: "SKU-001",
+                        quantity: 2,
+                        unitPrice: 100,
+                        lineTotal: 200,
+                        createdAt: new Date()
+                    }
+                ]);
+
+            const result =
+                await createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 2
+                    },
+                    "idem-key-123"
+                );
+
+            expect(
+                mockedFindOrderByUserIdAndIdempotencyKey
+            ).toHaveBeenCalledWith(
+                "user-1",
+                "idem-key-123"
+            );
+
+            expect(
+                mockedFindOrderById
+            ).toHaveBeenCalledWith(
+                "existing-order-1"
+            );
+
+            expect(
+                mockedFindOrderItems
+            ).toHaveBeenCalledWith(
+                "existing-order-1"
+            );
+
+            expect(
+                mockedCreateOrder
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedGetProductById
+            ).not.toHaveBeenCalled();
+
+            expect(
+                result.id
+            ).toBe("existing-order-1");
+
+            expect(
+                result.items
+            ).toHaveLength(1);
         });
     });
 
     describe("createNewOrder - BUY_NOW", () => {
         it("should reject an invalid quantity", async () => {
             await expect(
-                createNewOrder("user-1", {
-                    source: "BUY_NOW",
-                    productId: "product-1",
-                    quantity: 0
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 0
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
-                message: "Quantity must be a positive integer",
+                message:
+                    "Quantity must be a positive integer",
                 statusCode: 400
             });
 
-            expect(mockedGetProductById).not.toHaveBeenCalled();
-            expect(mockedCreateOrder).not.toHaveBeenCalled();
+            expect(
+                mockedGetProductById
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedCreateOrder
+            ).not.toHaveBeenCalled();
         });
 
         it("should reject an inactive product", async () => {
@@ -227,17 +476,23 @@ describe("Order Service", () => {
             });
 
             await expect(
-                createNewOrder("user-1", {
-                    source: "BUY_NOW",
-                    productId: "product-1",
-                    quantity: 1
-                })
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 1
+                    },
+                    null
+                )
             ).rejects.toMatchObject({
                 message: "Product is inactive",
                 statusCode: 400
             });
 
-            expect(mockedCreateOrder).not.toHaveBeenCalled();
+            expect(
+                mockedCreateOrder
+            ).not.toHaveBeenCalled();
         });
 
         it("should create an order for an active product", async () => {
@@ -252,7 +507,8 @@ describe("Order Service", () => {
             mockedCreateOrder.mockImplementation(
                 async (order) => ({
                     id: order.id,
-                    orderNumber: order.orderNumber,
+                    orderNumber:
+                        order.orderNumber,
                     userId: order.userId,
                     status: order.status,
                     subtotal: order.subtotal,
@@ -262,25 +518,32 @@ describe("Order Service", () => {
                 })
             );
 
-            const result = await createNewOrder(
-                "user-1",
-                {
-                    source: "BUY_NOW",
-                    productId: "product-1",
-                    quantity: 2
-                }
-            );
+            const result =
+                await createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 2
+                    },
+                    null
+                );
 
-            expect(mockedGetProductById).toHaveBeenCalledWith(
+            expect(
+                mockedGetProductById
+            ).toHaveBeenCalledWith(
                 "product-1"
             );
 
-            expect(mockedCreateOrder).toHaveBeenCalledWith(
+            expect(
+                mockedCreateOrder
+            ).toHaveBeenCalledWith(
                 expect.objectContaining({
                     userId: "user-1",
                     status: "PENDING_PAYMENT",
                     subtotal: 299.98,
-                    total: 299.98
+                    total: 299.98,
+                    idempotencyKey: null
                 }),
                 [
                     expect.objectContaining({
@@ -295,31 +558,183 @@ describe("Order Service", () => {
             expect(result.total).toBe(299.98);
             expect(result.items).toHaveLength(1);
         });
-    });
 
-    describe("getUserOrders", () => {
-        it("should return orders for the authenticated user", async () => {
-            mockedFindOrdersByUserId.mockResolvedValue([
-                {
-                    id: "order-1",
-                    orderNumber: "QC-001",
-                    userId: "user-1",
-                    status: "PENDING_PAYMENT",
-                    subtotal: 100,
-                    total: 100,
+        it("should persist the idempotency key when creating a BUY_NOW order", async () => {
+            mockedGetProductById.mockResolvedValue({
+                id: "product-1",
+                name: "Test Product",
+                sku: "SKU-001",
+                price: 100,
+                status: "ACTIVE"
+            });
+
+            mockedCreateOrder.mockImplementation(
+                async (order) => ({
+                    id: order.id,
+                    orderNumber:
+                        order.orderNumber,
+                    userId: order.userId,
+                    status: order.status,
+                    subtotal: order.subtotal,
+                    total: order.total,
                     createdAt: new Date(),
                     updatedAt: new Date()
-                }
-            ]);
-
-            const result = await getUserOrders("user-1");
-
-            expect(mockedFindOrdersByUserId).toHaveBeenCalledWith(
-                "user-1"
+                })
             );
 
-            expect(result).toHaveLength(1);
-            expect(result[0].id).toBe("order-1");
+            await createNewOrder(
+                "user-1",
+                {
+                    source: "BUY_NOW",
+                    productId: "product-1",
+                    quantity: 2
+                },
+                "idem-key-123"
+            );
+
+            expect(
+                mockedFindOrderByUserIdAndIdempotencyKey
+            ).toHaveBeenCalledWith(
+                "user-1",
+                "idem-key-123"
+            );
+
+            expect(
+                mockedCreateOrder
+            ).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    userId: "user-1",
+                    status: "PENDING_PAYMENT",
+                    subtotal: 200,
+                    total: 200,
+                    idempotencyKey:
+                        "idem-key-123"
+                }),
+                [
+                    expect.objectContaining({
+                        productId: "product-1",
+                        quantity: 2,
+                        unitPrice: 100,
+                        lineTotal: 200
+                    })
+                ]
+            );
+        });
+    });
+
+    describe("getUserOrdersPaginated", () => {
+        it("should return paginated orders", async () => {
+            mockedFindOrdersByUserIdPaginated
+                .mockResolvedValue({
+                    orders: [
+                        {
+                            id: "order-1",
+                            orderNumber: "QC-001",
+                            userId: "user-1",
+                            status:
+                                "PENDING_PAYMENT",
+                            subtotal: 100,
+                            total: 100,
+                            createdAt: new Date(),
+                            updatedAt: new Date()
+                        },
+                        {
+                            id: "order-2",
+                            orderNumber: "QC-002",
+                            userId: "user-1",
+                            status: "CONFIRMED",
+                            subtotal: 200,
+                            total: 200,
+                            createdAt: new Date(),
+                            updatedAt: new Date()
+                        }
+                    ],
+                    totalItems: 5
+                });
+
+            const result =
+                await getUserOrdersPaginated(
+                    "user-1",
+                    1,
+                    2
+                );
+
+            expect(
+                mockedFindOrdersByUserIdPaginated
+            ).toHaveBeenCalledWith(
+                "user-1",
+                2,
+                0
+            );
+
+            expect(
+                result.orders
+            ).toHaveLength(2);
+
+            expect(
+                result.pagination
+            ).toEqual({
+                page: 1,
+                pageSize: 2,
+                totalItems: 5,
+                totalPages: 3
+            });
+        });
+
+        it("should calculate the correct offset for later pages", async () => {
+            mockedFindOrdersByUserIdPaginated
+                .mockResolvedValue({
+                    orders: [],
+                    totalItems: 45
+                });
+
+            const result =
+                await getUserOrdersPaginated(
+                    "user-1",
+                    3,
+                    20
+                );
+
+            expect(
+                mockedFindOrdersByUserIdPaginated
+            ).toHaveBeenCalledWith(
+                "user-1",
+                20,
+                40
+            );
+
+            expect(
+                result.pagination
+            ).toEqual({
+                page: 3,
+                pageSize: 20,
+                totalItems: 45,
+                totalPages: 3
+            });
+        });
+
+        it("should return zero total pages when user has no orders", async () => {
+            mockedFindOrdersByUserIdPaginated
+                .mockResolvedValue({
+                    orders: [],
+                    totalItems: 0
+                });
+
+            const result =
+                await getUserOrdersPaginated(
+                    "user-1",
+                    1,
+                    20
+                );
+
+            expect(
+                result.pagination
+            ).toEqual({
+                page: 1,
+                pageSize: 20,
+                totalItems: 0,
+                totalPages: 0
+            });
         });
     });
 
@@ -350,25 +765,37 @@ describe("Order Service", () => {
                 }
             ]);
 
-            const result = await getUserOrderById(
-                "user-1",
+            const result =
+                await getUserOrderById(
+                    "user-1",
+                    "order-1"
+                );
+
+            expect(
+                mockedFindOrderById
+            ).toHaveBeenCalledWith(
                 "order-1"
             );
 
-            expect(mockedFindOrderById).toHaveBeenCalledWith(
+            expect(
+                mockedFindOrderItems
+            ).toHaveBeenCalledWith(
                 "order-1"
             );
 
-            expect(mockedFindOrderItems).toHaveBeenCalledWith(
-                "order-1"
-            );
+            expect(
+                result.items
+            ).toHaveLength(1);
 
-            expect(result.items).toHaveLength(1);
-            expect(result.items?.[0].productId).toBe("product-1");
+            expect(
+                result.items?.[0].productId
+            ).toBe("product-1");
         });
 
         it("should return 404 when the order does not exist", async () => {
-            mockedFindOrderById.mockResolvedValue(null);
+            mockedFindOrderById.mockResolvedValue(
+                null
+            );
 
             await expect(
                 getUserOrderById(
@@ -380,7 +807,9 @@ describe("Order Service", () => {
                 statusCode: 404
             });
 
-            expect(mockedFindOrderItems).not.toHaveBeenCalled();
+            expect(
+                mockedFindOrderItems
+            ).not.toHaveBeenCalled();
         });
 
         it("should return 404 when the order belongs to another user", async () => {
@@ -405,7 +834,9 @@ describe("Order Service", () => {
                 statusCode: 404
             });
 
-            expect(mockedFindOrderItems).not.toHaveBeenCalled();
+            expect(
+                mockedFindOrderItems
+            ).not.toHaveBeenCalled();
         });
     });
 });

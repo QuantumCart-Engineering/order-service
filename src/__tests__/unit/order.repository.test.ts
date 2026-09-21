@@ -4,7 +4,7 @@ import {
     createOrder,
     findOrderById,
     findOrderItems,
-    findOrdersByUserId,
+    findOrdersByUserIdPaginated,
     updateOrderStatus
 } from "../../repositories/order.repository";
 import {
@@ -12,7 +12,8 @@ import {
     createOrderQuery,
     findOrderByIdQuery,
     findOrderItemsQuery,
-    findOrdersByUserIdQuery,
+    findOrdersByUserIdPaginatedQuery,
+    countOrdersByUserIdQuery,
     updateOrderStatusQuery
 } from "../../queries/order.queries";
 
@@ -98,7 +99,8 @@ describe("Order Repository", () => {
                     userId: "user-1",
                     status: "PENDING_PAYMENT",
                     subtotal: 250,
-                    total: 250
+                    total: 250,
+                    idempotencyKey: null
                 },
                 [
                     {
@@ -114,9 +116,13 @@ describe("Order Repository", () => {
                 ]
             );
 
-            expect(connection.beginTransaction).toHaveBeenCalledTimes(1);
+            expect(
+                connection.beginTransaction
+            ).toHaveBeenCalledTimes(1);
 
-            expect(connection.execute).toHaveBeenNthCalledWith(
+            expect(
+                connection.execute
+            ).toHaveBeenNthCalledWith(
                 1,
                 createOrderQuery,
                 [
@@ -125,11 +131,14 @@ describe("Order Repository", () => {
                     "user-1",
                     "PENDING_PAYMENT",
                     250,
-                    250
+                    250,
+                    null
                 ]
             );
 
-            expect(connection.execute).toHaveBeenNthCalledWith(
+            expect(
+                connection.execute
+            ).toHaveBeenNthCalledWith(
                 2,
                 createOrderItemQuery,
                 [
@@ -144,9 +153,17 @@ describe("Order Repository", () => {
                 ]
             );
 
-            expect(connection.commit).toHaveBeenCalledTimes(1);
-            expect(connection.rollback).not.toHaveBeenCalled();
-            expect(connection.release).toHaveBeenCalledTimes(1);
+            expect(
+                connection.commit
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                connection.rollback
+            ).not.toHaveBeenCalled();
+
+            expect(
+                connection.release
+            ).toHaveBeenCalledTimes(1);
 
             expect(result.id).toBe("order-1");
             expect(result.orderNumber).toBe("QC-001");
@@ -157,7 +174,9 @@ describe("Order Repository", () => {
         it("should rollback when order creation fails", async () => {
             const error = new Error("Database error");
 
-            connection.execute.mockRejectedValueOnce(error);
+            connection.execute.mockRejectedValueOnce(
+                error
+            );
 
             await expect(
                 createOrder(
@@ -167,7 +186,8 @@ describe("Order Repository", () => {
                         userId: "user-1",
                         status: "PENDING_PAYMENT",
                         subtotal: 100,
-                        total: 100
+                        total: 100,
+                        idempotencyKey: null
                     },
                     [
                         {
@@ -184,14 +204,27 @@ describe("Order Repository", () => {
                 )
             ).rejects.toThrow("Database error");
 
-            expect(connection.beginTransaction).toHaveBeenCalledTimes(1);
-            expect(connection.rollback).toHaveBeenCalledTimes(1);
-            expect(connection.commit).not.toHaveBeenCalled();
-            expect(connection.release).toHaveBeenCalledTimes(1);
+            expect(
+                connection.beginTransaction
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                connection.rollback
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                connection.commit
+            ).not.toHaveBeenCalled();
+
+            expect(
+                connection.release
+            ).toHaveBeenCalledTimes(1);
         });
 
         it("should rollback when an order item creation fails", async () => {
-            const error = new Error("Order item insert failed");
+            const error = new Error(
+                "Order item insert failed"
+            );
 
             connection.execute
                 .mockResolvedValueOnce([
@@ -215,7 +248,8 @@ describe("Order Repository", () => {
                         userId: "user-1",
                         status: "PENDING_PAYMENT",
                         subtotal: 100,
-                        total: 100
+                        total: 100,
+                        idempotencyKey: null
                     },
                     [
                         {
@@ -230,12 +264,25 @@ describe("Order Repository", () => {
                         }
                     ]
                 )
-            ).rejects.toThrow("Order item insert failed");
+            ).rejects.toThrow(
+                "Order item insert failed"
+            );
 
-            expect(connection.beginTransaction).toHaveBeenCalledTimes(1);
-            expect(connection.rollback).toHaveBeenCalledTimes(1);
-            expect(connection.commit).not.toHaveBeenCalled();
-            expect(connection.release).toHaveBeenCalledTimes(1);
+            expect(
+                connection.beginTransaction
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                connection.rollback
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                connection.commit
+            ).not.toHaveBeenCalled();
+
+            expect(
+                connection.release
+            ).toHaveBeenCalledTimes(1);
         });
 
         it("should fail when the created order cannot be retrieved", async () => {
@@ -275,7 +322,8 @@ describe("Order Repository", () => {
                         userId: "user-1",
                         status: "PENDING_PAYMENT",
                         subtotal: 100,
-                        total: 100
+                        total: 100,
+                        idempotencyKey: null
                     },
                     [
                         {
@@ -294,8 +342,13 @@ describe("Order Repository", () => {
                 "Created order could not be retrieved"
             );
 
-            expect(connection.rollback).toHaveBeenCalledTimes(1);
-            expect(connection.release).toHaveBeenCalledTimes(1);
+            expect(
+                connection.rollback
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                connection.release
+            ).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -317,9 +370,13 @@ describe("Order Repository", () => {
                 []
             ]);
 
-            const result = await findOrderById("order-1");
+            const result = await findOrderById(
+                "order-1"
+            );
 
-            expect(mockedPool.execute).toHaveBeenCalledWith(
+            expect(
+                mockedPool.execute
+            ).toHaveBeenCalledWith(
                 findOrderByIdQuery,
                 ["order-1"]
             );
@@ -337,63 +394,150 @@ describe("Order Repository", () => {
                 []
             ]);
 
-            const result = await findOrderById("order-1");
+            const result = await findOrderById(
+                "order-1"
+            );
 
             expect(result).toBeNull();
         });
     });
 
-    describe("findOrdersByUserId", () => {
-        it("should return all orders for a user", async () => {
-            mockedPool.execute.mockResolvedValueOnce([
-                [
-                    {
-                        id: "order-1",
-                        order_number: "QC-001",
-                        user_id: "user-1",
-                        status: "PENDING_PAYMENT",
-                        subtotal: "100.00",
-                        total: "100.00",
-                        created_at: new Date(),
-                        updated_at: new Date()
-                    },
-                    {
-                        id: "order-2",
-                        order_number: "QC-002",
-                        user_id: "user-1",
-                        status: "CONFIRMED",
-                        subtotal: "200.00",
-                        total: "200.00",
-                        created_at: new Date(),
-                        updated_at: new Date()
-                    }
-                ],
-                []
-            ]);
+    describe("findOrdersByUserIdPaginated", () => {
+        it("should return paginated orders and total count", async () => {
+            mockedPool.execute
+                .mockResolvedValueOnce([
+                    [
+                        {
+                            id: "order-1",
+                            order_number: "QC-001",
+                            user_id: "user-1",
+                            status: "PENDING_PAYMENT",
+                            subtotal: "100.00",
+                            total: "100.00",
+                            created_at: new Date(),
+                            updated_at: new Date()
+                        },
+                        {
+                            id: "order-2",
+                            order_number: "QC-002",
+                            user_id: "user-1",
+                            status: "CONFIRMED",
+                            subtotal: "200.00",
+                            total: "200.00",
+                            created_at: new Date(),
+                            updated_at: new Date()
+                        }
+                    ],
+                    []
+                ])
+                .mockResolvedValueOnce([
+                    [
+                        {
+                            total: 5
+                        }
+                    ],
+                    []
+                ]);
 
-            const result = await findOrdersByUserId("user-1");
+            const result =
+                await findOrdersByUserIdPaginated(
+                    "user-1",
+                    2,
+                    0
+                );
 
-            expect(mockedPool.execute).toHaveBeenCalledWith(
-                findOrdersByUserIdQuery,
+            expect(
+                mockedPool.execute
+            ).toHaveBeenNthCalledWith(
+                1,
+                findOrdersByUserIdPaginatedQuery,
+                ["user-1", 2, 0]
+            );
+
+            expect(
+                mockedPool.execute
+            ).toHaveBeenNthCalledWith(
+                2,
+                countOrdersByUserIdQuery,
                 ["user-1"]
             );
 
-            expect(result).toHaveLength(2);
-            expect(result[0].id).toBe("order-1");
-            expect(result[0].subtotal).toBe(100);
-            expect(result[1].id).toBe("order-2");
-            expect(result[1].total).toBe(200);
+            expect(result.orders).toHaveLength(2);
+            expect(result.orders[0].id).toBe(
+                "order-1"
+            );
+            expect(result.orders[1].id).toBe(
+                "order-2"
+            );
+            expect(result.totalItems).toBe(5);
         });
 
-        it("should return an empty array when user has no orders", async () => {
-            mockedPool.execute.mockResolvedValueOnce([
-                [],
-                []
-            ]);
+        it("should return an empty page with total count", async () => {
+            mockedPool.execute
+                .mockResolvedValueOnce([
+                    [],
+                    []
+                ])
+                .mockResolvedValueOnce([
+                    [
+                        {
+                            total: 3
+                        }
+                    ],
+                    []
+                ]);
 
-            const result = await findOrdersByUserId("user-1");
+            const result =
+                await findOrdersByUserIdPaginated(
+                    "user-1",
+                    2,
+                    6
+                );
 
-            expect(result).toEqual([]);
+            expect(result.orders).toEqual([]);
+            expect(result.totalItems).toBe(3);
+
+            expect(
+                mockedPool.execute
+            ).toHaveBeenNthCalledWith(
+                1,
+                findOrdersByUserIdPaginatedQuery,
+                ["user-1", 2, 6]
+            );
+
+            expect(
+                mockedPool.execute
+            ).toHaveBeenNthCalledWith(
+                2,
+                countOrdersByUserIdQuery,
+                ["user-1"]
+            );
+        });
+
+        it("should return zero total when user has no orders", async () => {
+            mockedPool.execute
+                .mockResolvedValueOnce([
+                    [],
+                    []
+                ])
+                .mockResolvedValueOnce([
+                    [
+                        {
+                            total: 0
+                        }
+                    ],
+                    []
+                ]);
+
+            const result =
+                await findOrdersByUserIdPaginated(
+                    "user-1",
+                    20,
+                    0
+                );
+
+            expect(result.orders).toEqual([]);
+            expect(result.totalItems).toBe(0);
         });
     });
 
@@ -416,16 +560,22 @@ describe("Order Repository", () => {
                 []
             ]);
 
-            const result = await findOrderItems("order-1");
+            const result = await findOrderItems(
+                "order-1"
+            );
 
-            expect(mockedPool.execute).toHaveBeenCalledWith(
+            expect(
+                mockedPool.execute
+            ).toHaveBeenCalledWith(
                 findOrderItemsQuery,
                 ["order-1"]
             );
 
             expect(result).toHaveLength(1);
             expect(result[0].id).toBe("item-1");
-            expect(result[0].productId).toBe("product-1");
+            expect(result[0].productId).toBe(
+                "product-1"
+            );
             expect(result[0].quantity).toBe(2);
             expect(result[0].unitPrice).toBe(100);
             expect(result[0].lineTotal).toBe(200);
@@ -437,7 +587,9 @@ describe("Order Repository", () => {
                 []
             ]);
 
-            const result = await findOrderItems("order-1");
+            const result = await findOrderItems(
+                "order-1"
+            );
 
             expect(result).toEqual([]);
         });
@@ -462,7 +614,9 @@ describe("Order Repository", () => {
                 "CONFIRMED"
             );
 
-            expect(mockedPool.execute).toHaveBeenCalledWith(
+            expect(
+                mockedPool.execute
+            ).toHaveBeenCalledWith(
                 updateOrderStatusQuery,
                 ["CONFIRMED", "order-1"]
             );
