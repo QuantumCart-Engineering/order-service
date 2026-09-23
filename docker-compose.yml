@@ -4,10 +4,10 @@ services:
     container_name: quantumcart-order-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: quantumcart_orders
-      MYSQL_USER: quantumcart
-      MYSQL_PASSWORD: quantumcart_root
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
       - "3309:3306"
     volumes:
@@ -26,12 +26,12 @@ services:
       PORT: 8004
       DB_HOST: order-db
       DB_PORT: 3306
-      DB_USER: quantumcart
-      DB_PASSWORD: quantumcart_root
-      DB_NAME: quantumcart_orders
-      DB_CONNECTION_LIMIT: 10
-      DB_ROOT_USER: root
-      DB_ROOT_PASSWORD: root
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_CONNECTION_LIMIT: ${DB_CONNECTION_LIMIT}
+      DB_ROOT_USER: ${DB_ROOT_USER}
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       PRODUCT_SERVICE_URL: http://product-service:8002
       CART_SERVICE_URL: http://cart-service:8003
     ports:
