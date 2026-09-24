@@ -4,13 +4,24 @@ import type {
     RequestHandler,
     Response
 } from "express";
-import { AppError } from "../utils/app-error";
 
-export const validateCreateOrder: RequestHandler = (
-    request: Request,
-    _response: Response,
-    next: NextFunction
-): void => {
+import {
+    AppError
+} from "../utils/app-error";
+
+const VALID_PAYMENT_METHODS = [
+    "UPI",
+    "DEBIT_CARD",
+    "CREDIT_CARD"
+] as const;
+
+export const validateCreateOrder:
+    RequestHandler = (
+        request: Request,
+        _response: Response,
+        next: NextFunction
+    ): void => {
+
     const body = request.body;
 
     if (
@@ -40,12 +51,42 @@ export const validateCreateOrder: RequestHandler = (
         return;
     }
 
-    const keys = Object.keys(body);
+    if (
+        body.paymentMethod !== undefined &&
+        !VALID_PAYMENT_METHODS.includes(
+            body.paymentMethod
+        )
+    ) {
+        next(
+            new AppError(
+                "Invalid payment method",
+                400
+            )
+        );
+        return;
+    }
 
-    if (body.source === "CART") {
+    const keys =
+        Object.keys(body);
+
+    if (
+        body.source === "CART"
+    ) {
+        const allowedKeys = [
+            "source",
+            "paymentMethod"
+        ];
+
+        const hasInvalidKeys =
+            keys.some(
+                (key) =>
+                    !allowedKeys.includes(
+                        key
+                    )
+            );
+
         if (
-            keys.length !== 1 ||
-            keys[0] !== "source"
+            hasInvalidKeys
         ) {
             next(
                 new AppError(
@@ -63,14 +104,21 @@ export const validateCreateOrder: RequestHandler = (
     const allowedKeys = [
         "source",
         "productId",
-        "quantity"
+        "quantity",
+        "paymentMethod"
     ];
 
-    const hasInvalidKeys = keys.some(
-        (key) => !allowedKeys.includes(key)
-    );
+    const hasInvalidKeys =
+        keys.some(
+            (key) =>
+                !allowedKeys.includes(
+                    key
+                )
+        );
 
-    if (hasInvalidKeys) {
+    if (
+        hasInvalidKeys
+    ) {
         next(
             new AppError(
                 "Invalid BUY_NOW order request",
@@ -81,7 +129,8 @@ export const validateCreateOrder: RequestHandler = (
     }
 
     if (
-        typeof body.productId !== "string" ||
+        typeof body.productId !==
+            "string" ||
         body.productId.trim() === ""
     ) {
         next(
@@ -94,7 +143,9 @@ export const validateCreateOrder: RequestHandler = (
     }
 
     if (
-        !Number.isInteger(body.quantity) ||
+        !Number.isInteger(
+            body.quantity
+        ) ||
         body.quantity <= 0
     ) {
         next(

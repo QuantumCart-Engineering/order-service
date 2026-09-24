@@ -1,24 +1,37 @@
 import { randomUUID } from "crypto";
+
 import {
     getProductById,
     ProductDetails
 } from "../clients/product.client";
+
 import {
     getActiveCart,
     checkoutCart,
     CartItem
 } from "../clients/cart.client";
+
+import {
+    createPayment,
+    PaymentMethod
+} from "../clients/payment.client";
+
 import {
     CreateOrderDto
 } from "../dtos/order.dto";
+
 import {
     createOrder,
     findOrderById,
     findOrderItems,
     findOrdersByUserIdPaginated,
-    findOrderByUserIdAndIdempotencyKey
+    findOrderByUserIdAndIdempotencyKey,
+    updateOrderStatus
 } from "../repositories/order.repository";
-import { AppError } from "../utils/app-error";
+
+import {
+    AppError
+} from "../utils/app-error";
 
 export interface OrderItem {
     id: string;
@@ -35,9 +48,9 @@ export interface Order {
     orderNumber: string;
     userId: string;
     status:
-        | "PENDING_PAYMENT"
-        | "CONFIRMED"
-        | "CANCELLED";
+    | "PENDING_PAYMENT"
+    | "CONFIRMED"
+    | "CANCELLED";
     subtotal: number;
     total: number;
     createdAt: Date;
@@ -65,6 +78,9 @@ interface OrderItemData {
     unitPrice: number;
     lineTotal: number;
 }
+
+const DEFAULT_PAYMENT_METHOD:
+    PaymentMethod = "UPI";
 
 const roundMoney = (
     value: number
@@ -126,11 +142,57 @@ const validateQuantity = (
     }
 };
 
+const processOrderPayment = async (
+    order: Order,
+    paymentMethod:
+        | PaymentMethod
+        | undefined
+): Promise<void> => {
+    const result =
+        await createPayment(
+            order.id,
+            order.total,
+            paymentMethod ??
+            DEFAULT_PAYMENT_METHOD,
+            `order-payment-${order.id}`
+        );
+
+    if (
+        result.status !== "SUCCESS"
+    ) {
+        await updateOrderStatus(
+            order.id,
+            "CANCELLED"
+        );
+
+        throw new AppError(
+            "Payment failed",
+            400
+        );
+    }
+
+    const updated =
+        await updateOrderStatus(
+            order.id,
+            "CONFIRMED"
+        );
+
+    if (!updated) {
+        throw new AppError(
+            "Order could not be confirmed",
+            500
+        );
+    }
+};
+
 const createCartOrder = async (
     userId: string,
     cartId: string,
     cartItems: CartItem[],
-    idempotencyKey: string | null
+    idempotencyKey: string | null,
+    paymentMethod:
+        | PaymentMethod
+        | undefined
 ): Promise<Order> => {
     if (cartItems.length === 0) {
         throw new AppError(
@@ -152,7 +214,9 @@ const createCartOrder = async (
                 cartItem.productId
             );
 
-        if (product.status !== "ACTIVE") {
+        if (
+            product.status !== "ACTIVE"
+        ) {
             throw new AppError(
                 `Product ${product.id} is inactive`,
                 400
@@ -192,12 +256,7 @@ const createCartOrder = async (
             orderItems
         );
 
-    await checkoutCart(
-        cartId,
-        userId
-    );
-
-    return {
+    const order: Order = {
         ...createdOrder,
         items: orderItems.map(
             (item) => ({
@@ -216,13 +275,31 @@ const createCartOrder = async (
             })
         )
     };
+
+    await processOrderPayment(
+        order,
+        paymentMethod
+    );
+
+    await checkoutCart(
+        cartId,
+        userId
+    );
+
+    return {
+        ...order,
+        status: "CONFIRMED"
+    };
 };
 
 const createBuyNowOrder = async (
     userId: string,
     productId: string,
     quantity: number,
-    idempotencyKey: string | null
+    idempotencyKey: string | null,
+    paymentMethod:
+        | PaymentMethod
+        | undefined
 ): Promise<Order> => {
     validateQuantity(quantity);
 
@@ -231,7 +308,9 @@ const createBuyNowOrder = async (
             productId
         );
 
-    if (product.status !== "ACTIVE") {
+    if (
+        product.status !== "ACTIVE"
+    ) {
         throw new AppError(
             "Product is inactive",
             400
@@ -266,7 +345,7 @@ const createBuyNowOrder = async (
             [orderItem]
         );
 
-    return {
+    const order: Order = {
         ...createdOrder,
         items: [
             {
@@ -284,6 +363,16 @@ const createBuyNowOrder = async (
                     orderItem.lineTotal
             }
         ]
+    };
+
+    await processOrderPayment(
+        order,
+        paymentMethod
+    );
+
+    return {
+        ...order,
+        status: "CONFIRMED"
     };
 };
 
@@ -307,7 +396,9 @@ export const createNewOrder = async (
         }
     }
 
-    if (dto.source === "CART") {
+    if (
+        dto.source === "CART"
+    ) {
         const cart =
             await getActiveCart(
                 userId
@@ -326,7 +417,8 @@ export const createNewOrder = async (
             userId,
             cart.id,
             cart.items,
-            idempotencyKey
+            idempotencyKey,
+            dto.paymentMethod
         );
     }
 
@@ -334,7 +426,8 @@ export const createNewOrder = async (
         userId,
         dto.productId,
         dto.quantity,
-        idempotencyKey
+        idempotencyKey,
+        dto.paymentMethod
     );
 };
 
@@ -342,7 +435,34 @@ export const getUserOrdersPaginated = async (
     userId: string,
     page: number,
     pageSize: number
-): Promise<PaginatedOrders> => {
+) => {
+    if (
+        !Number.isInteger(page) ||
+        page <= 0
+    ) {
+        throw new AppError(
+            "Page must be a positive integer",
+            400
+        );
+    }
+
+    if (
+        !Number.isInteger(pageSize) ||
+        pageSize <= 0
+    ) {
+        throw new AppError(
+            "Page size must be a positive integer",
+            400
+        );
+    }
+
+    if (pageSize > 100) {
+        throw new AppError(
+            "Page size cannot exceed 100",
+            400
+        );
+    }
+
     const offset =
         (page - 1) * pageSize;
 
@@ -353,9 +473,10 @@ export const getUserOrdersPaginated = async (
             offset
         );
 
-    const totalPages = Math.ceil(
-        result.totalItems / pageSize
-    );
+    const totalPages =
+        Math.ceil(
+            result.totalItems / pageSize
+        );
 
     return {
         orders: result.orders,
