@@ -60,7 +60,7 @@ describe("Order Integration", () => {
             expect(response.body.data).toEqual(
                 expect.objectContaining({
                     userId,
-                    status: "PENDING_PAYMENT",
+                    status: "CONFIRMED",
                     subtotal: lineTotal,
                     total: lineTotal
                 })
@@ -148,7 +148,7 @@ describe("Order Integration", () => {
             expect(response.body.data).toEqual(
                 expect.objectContaining({
                     userId: cartUserId,
-                    status: "PENDING_PAYMENT",
+                    status: "CONFIRMED",
                     subtotal: lineTotal,
                     total: lineTotal
                 })
@@ -277,6 +277,13 @@ describe("Order Integration", () => {
             const paginationUserId =
                 randomUUID();
 
+            /*
+             * The mock payment provider intentionally
+             * fails amounts ending in 99.
+             *
+             * Product price = 49999.
+             * Quantity 2 => 99998, so payment succeeds.
+             */
             for (let index = 0; index < 3; index++) {
                 const response =
                     await request(app)
@@ -290,12 +297,16 @@ describe("Order Integration", () => {
                         .send({
                             source: "BUY_NOW",
                             productId,
-                            quantity: 1
+                            quantity: 2
                         });
 
                 expect(
                     response.status
                 ).toBe(201);
+
+                expect(
+                    response.body.success
+                ).toBe(true);
             }
 
             const pageOneResponse =
@@ -558,7 +569,7 @@ describe("Order Integration", () => {
                 expect.objectContaining({
                     id: orderId,
                     userId,
-                    status: "PENDING_PAYMENT",
+                    status: "CONFIRMED",
                     subtotal: lineTotal,
                     total: lineTotal
                 })
