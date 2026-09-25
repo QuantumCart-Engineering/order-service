@@ -92,16 +92,37 @@ jobs:
         image: mysql:8.4
 
         env:
-          MYSQL_ROOT_PASSWORD: ${{ secrets.PAYMENT_DB_ROOT_PASSWORD }}
-          MYSQL_DATABASE: ${{ secrets.PAYMENT_DB_NAME }}
-          MYSQL_USER: ${{ secrets.PAYMENT_DB_USER }}
-          MYSQL_PASSWORD: ${{ secrets.PAYMENT_DB_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          MYSQL_DATABASE: quantumcart_payments_test
+          MYSQL_USER: ${{ secrets.DB_TEST_USER }}
+          MYSQL_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
 
         ports:
           - 3310:3306
 
         options: >-
           --health-cmd="mysqladmin ping -h localhost -uroot -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=10s
+
+      # =========================
+      # RabbitMQ
+      # =========================
+      rabbitmq:
+        image: rabbitmq:3.13-management
+
+        env:
+          RABBITMQ_DEFAULT_USER: ci_user
+          RABBITMQ_DEFAULT_PASS: ci_password
+
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
@@ -180,6 +201,10 @@ jobs:
       # =========================
       - name: Install Order dependencies
         run: npm ci
+
+      # ============================================================
+      # PRODUCT SERVICE
+      # ============================================================
 
       # =========================
       # Create Product test environment
@@ -311,6 +336,10 @@ jobs:
                   status = 'ACTIVE'
               "
 
+      # ============================================================
+      # CART SERVICE
+      # ============================================================
+
       # =========================
       # Create Cart test environment
       # =========================
@@ -396,6 +425,10 @@ jobs:
           cat /tmp/cart-service.log
           exit 1
 
+      # ============================================================
+      # PAYMENT SERVICE
+      # ============================================================
+
       # =========================
       # Create Payment test environment
       # =========================
@@ -407,12 +440,13 @@ jobs:
           PORT=8006
           DB_HOST=127.0.0.1
           DB_PORT=3310
-          DB_USER=${{ secrets.PAYMENT_DB_USER }}
-          DB_PASSWORD=${{ secrets.PAYMENT_DB_PASSWORD }}
-          DB_NAME=${{ secrets.PAYMENT_DB_NAME }}
+          DB_USER=${{ secrets.DB_TEST_USER }}
+          DB_PASSWORD=${{ secrets.DB_TEST_PASSWORD }}
+          DB_NAME=quantumcart_payments_test
           DB_CONNECTION_LIMIT=10
-          DB_ROOT_USER=${{ secrets.PAYMENT_DB_ROOT_USER }}
-          DB_ROOT_PASSWORD=${{ secrets.PAYMENT_DB_ROOT_PASSWORD }}
+          DB_ROOT_USER=root
+          DB_ROOT_PASSWORD=${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          RABBITMQ_URL=amqp://ci_user:ci_password@127.0.0.1:5672
           PAYMENT_PROVIDER=mock
           EOF
 
@@ -432,12 +466,14 @@ jobs:
           NODE_ENV: test
           DB_HOST: 127.0.0.1
           DB_PORT: 3310
-          DB_USER: ${{ secrets.PAYMENT_DB_USER }}
-          DB_PASSWORD: ${{ secrets.PAYMENT_DB_PASSWORD }}
-          DB_NAME: ${{ secrets.PAYMENT_DB_NAME }}
+          DB_USER: ${{ secrets.DB_TEST_USER }}
+          DB_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
+          DB_NAME: quantumcart_payments_test
           DB_CONNECTION_LIMIT: 10
-          DB_ROOT_USER: ${{ secrets.PAYMENT_DB_ROOT_USER }}
-          DB_ROOT_PASSWORD: ${{ secrets.PAYMENT_DB_ROOT_PASSWORD }}
+          DB_ROOT_USER: root
+          DB_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          RABBITMQ_URL: amqp://ci_user:ci_password@127.0.0.1:5672
+          PAYMENT_PROVIDER: mock
         run: npm run migrate
 
       # =========================
@@ -450,12 +486,13 @@ jobs:
           PORT: 8006
           DB_HOST: 127.0.0.1
           DB_PORT: 3310
-          DB_USER: ${{ secrets.PAYMENT_DB_USER }}
-          DB_PASSWORD: ${{ secrets.PAYMENT_DB_PASSWORD }}
-          DB_NAME: ${{ secrets.PAYMENT_DB_NAME }}
+          DB_USER: ${{ secrets.DB_TEST_USER }}
+          DB_PASSWORD: ${{ secrets.DB_TEST_PASSWORD }}
+          DB_NAME: quantumcart_payments_test
           DB_CONNECTION_LIMIT: 10
-          DB_ROOT_USER: ${{ secrets.PAYMENT_DB_ROOT_USER }}
-          DB_ROOT_PASSWORD: ${{ secrets.PAYMENT_DB_ROOT_PASSWORD }}
+          DB_ROOT_USER: root
+          DB_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          RABBITMQ_URL: amqp://ci_user:ci_password@127.0.0.1:5672
           PAYMENT_PROVIDER: mock
         run: |
           nohup npm start > /tmp/payment-service.log 2>&1 &
@@ -479,6 +516,10 @@ jobs:
           echo "Payment Service failed to start."
           cat /tmp/payment-service.log
           exit 1
+
+      # ============================================================
+      # ORDER SERVICE
+      # ============================================================
 
       # =========================
       # Create Order test environment
@@ -521,7 +562,7 @@ jobs:
       - name: Run integration tests
         env:
           NODE_ENV: test
-        run: npm run test:integration -- --runInBand
+        run: npm run test:integration
 
       # =========================
       # Test coverage
@@ -543,8 +584,12 @@ jobs:
       - name: Build Order Docker image
         run: docker build -t quantumcart-order-service:ci .
 
+      # ============================================================
+      # FAILURE LOGS
+      # ============================================================
+
       # =========================
-      # Product Service logs on failure
+      # Product Service logs
       # =========================
       - name: Show Product Service logs
         if: failure()
@@ -554,7 +599,7 @@ jobs:
           fi
 
       # =========================
-      # Cart Service logs on failure
+      # Cart Service logs
       # =========================
       - name: Show Cart Service logs
         if: failure()
@@ -564,7 +609,7 @@ jobs:
           fi
 
       # =========================
-      # Payment Service logs on failure
+      # Payment Service logs
       # =========================
       - name: Show Payment Service logs
         if: failure()
