@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: QuantumCart-Engineering/payment-service
-          ref: master
+          ref: dev
           path: payment-service
 
       # =========================
@@ -180,10 +180,6 @@ jobs:
       # =========================
       - name: Install Order dependencies
         run: npm ci
-
-      # =========================================================
-      # PRODUCT SERVICE
-      # =========================================================
 
       # =========================
       # Create Product test environment
@@ -315,10 +311,6 @@ jobs:
                   status = 'ACTIVE'
               "
 
-      # =========================================================
-      # CART SERVICE
-      # =========================================================
-
       # =========================
       # Create Cart test environment
       # =========================
@@ -404,10 +396,6 @@ jobs:
           cat /tmp/cart-service.log
           exit 1
 
-      # =========================================================
-      # PAYMENT SERVICE
-      # =========================================================
-
       # =========================
       # Create Payment test environment
       # =========================
@@ -450,11 +438,7 @@ jobs:
           DB_CONNECTION_LIMIT: 10
           DB_ROOT_USER: ${{ secrets.PAYMENT_DB_ROOT_USER }}
           DB_ROOT_PASSWORD: ${{ secrets.PAYMENT_DB_ROOT_PASSWORD }}
-          PAYMENT_PROVIDER: mock
-        run: |
-          node --env-file=.env.test \
-            -r ts-node/register/transpile-only \
-            src/scripts/migrate.ts
+        run: npm run migrate
 
       # =========================
       # Start Payment Service
@@ -495,10 +479,6 @@ jobs:
           echo "Payment Service failed to start."
           cat /tmp/payment-service.log
           exit 1
-
-      # =========================================================
-      # ORDER SERVICE
-      # =========================================================
 
       # =========================
       # Create Order test environment
@@ -541,7 +521,7 @@ jobs:
       - name: Run integration tests
         env:
           NODE_ENV: test
-        run: npm run test:integration
+        run: npm run test:integration -- --runInBand
 
       # =========================
       # Test coverage
