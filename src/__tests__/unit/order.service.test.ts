@@ -8,11 +8,16 @@ import {
 } from "../../clients/cart.client";
 
 import {
+    createPayment
+} from "../../clients/payment.client";
+
+import {
     createOrder,
     findOrderById,
     findOrderItems,
     findOrdersByUserIdPaginated,
-    findOrderByUserIdAndIdempotencyKey
+    findOrderByUserIdAndIdempotencyKey,
+    updateOrderStatus
 } from "../../repositories/order.repository";
 
 import {
@@ -23,6 +28,7 @@ import {
 
 jest.mock("../../clients/product.client");
 jest.mock("../../clients/cart.client");
+jest.mock("../../clients/payment.client");
 jest.mock("../../repositories/order.repository");
 
 const mockedGetProductById = jest.mocked(
@@ -37,8 +43,16 @@ const mockedCheckoutCart = jest.mocked(
     checkoutCart
 );
 
+const mockedCreatePayment = jest.mocked(
+    createPayment
+);
+
 const mockedCreateOrder = jest.mocked(
     createOrder
+);
+
+const mockedUpdateOrderStatus = jest.mocked(
+    updateOrderStatus
 );
 
 const mockedFindOrderById = jest.mocked(
@@ -66,12 +80,31 @@ describe("Order Service", () => {
         /*
          * Default behavior:
          * No existing order for an idempotency key.
-         *
-         * Individual idempotency tests can override this
-         * when they specifically need an existing order.
          */
         mockedFindOrderByUserIdAndIdempotencyKey
             .mockResolvedValue(null);
+
+        /*
+         * Default successful payment.
+         *
+         * Payment service is mocked because these are
+         * unit tests for Order Service.
+         */
+        mockedCreatePayment.mockResolvedValue({
+            paymentId: 1,
+            orderId: "mock-order-id",
+            amount: 100,
+            currency: "INR",
+            paymentMethod: "UPI",
+            status: "SUCCESS"
+        });
+
+        /*
+         * Default successful order status update.
+         */
+        mockedUpdateOrderStatus.mockResolvedValue(
+            true
+        );
     });
 
     describe("createNewOrder - CART", () => {
@@ -273,6 +306,17 @@ describe("Order Service", () => {
             );
 
             expect(
+                mockedCreatePayment
+            ).toHaveBeenCalled();
+
+            expect(
+                mockedUpdateOrderStatus
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "CONFIRMED"
+            );
+
+            expect(
                 mockedCheckoutCart
             ).toHaveBeenCalledWith(
                 "cart-1",
@@ -281,6 +325,9 @@ describe("Order Service", () => {
 
             expect(result.subtotal).toBe(250);
             expect(result.total).toBe(250);
+            expect(result.status).toBe(
+                "CONFIRMED"
+            );
             expect(result.items).toHaveLength(2);
         });
 
@@ -343,6 +390,10 @@ describe("Order Service", () => {
             ).toHaveBeenCalled();
 
             expect(
+                mockedCreatePayment
+            ).toHaveBeenCalled();
+
+            expect(
                 mockedCheckoutCart
             ).toHaveBeenCalledWith(
                 "cart-1",
@@ -357,7 +408,8 @@ describe("Order Service", () => {
                 id: "existing-order-1",
                 orderNumber: "QC-EXISTING-001",
                 userId: "user-1",
-                status: "PENDING_PAYMENT" as const,
+                status:
+                    "PENDING_PAYMENT" as const,
                 subtotal: 200,
                 total: 200,
                 createdAt: new Date(),
@@ -555,7 +607,26 @@ describe("Order Service", () => {
                 ]
             );
 
+            expect(
+                mockedCreatePayment
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                299.98,
+                "UPI",
+                expect.any(String)
+            );
+
+            expect(
+                mockedUpdateOrderStatus
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "CONFIRMED"
+            );
+
             expect(result.total).toBe(299.98);
+            expect(result.status).toBe(
+                "CONFIRMED"
+            );
             expect(result.items).toHaveLength(1);
         });
 
@@ -619,6 +690,15 @@ describe("Order Service", () => {
                     })
                 ]
             );
+
+            expect(
+                mockedCreatePayment
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                200,
+                "UPI",
+                expect.any(String)
+            );
         });
     });
 
@@ -642,7 +722,8 @@ describe("Order Service", () => {
                             id: "order-2",
                             orderNumber: "QC-002",
                             userId: "user-1",
-                            status: "CONFIRMED",
+                            status:
+                                "CONFIRMED",
                             subtotal: 200,
                             total: 200,
                             createdAt: new Date(),
@@ -713,54 +794,95 @@ describe("Order Service", () => {
             });
         });
 
-        it("should return zero total pages when user has no orders", async () => {
-            mockedFindOrdersByUserIdPaginated
-                .mockResolvedValue({
-                    orders: [],
-                    totalItems: 0
-                });
-
-            const result =
-                await getUserOrdersPaginated(
+        it("should reject invalid page", async () => {
+            await expect(
+                getUserOrdersPaginated(
                     "user-1",
-                    1,
+                    0,
                     20
-                );
+                )
+            ).rejects.toMatchObject({
+                message:
+                    "Page must be a positive integer",
+                statusCode: 400
+            });
 
             expect(
-                result.pagination
-            ).toEqual({
-                page: 1,
-                pageSize: 20,
-                totalItems: 0,
-                totalPages: 0
+                mockedFindOrdersByUserIdPaginated
+            ).not.toHaveBeenCalled();
+        });
+
+        it("should reject invalid page size", async () => {
+            await expect(
+                getUserOrdersPaginated(
+                    "user-1",
+                    1,
+                    0
+                )
+            ).rejects.toMatchObject({
+                message:
+                    "Page size must be a positive integer",
+                statusCode: 400
             });
+
+            expect(
+                mockedFindOrdersByUserIdPaginated
+            ).not.toHaveBeenCalled();
+        });
+
+        it("should reject page size above 100", async () => {
+            await expect(
+                getUserOrdersPaginated(
+                    "user-1",
+                    1,
+                    101
+                )
+            ).rejects.toMatchObject({
+                message:
+                    "Page size cannot exceed 100",
+                statusCode: 400
+            });
+
+            expect(
+                mockedFindOrdersByUserIdPaginated
+            ).not.toHaveBeenCalled();
         });
     });
 
     describe("getUserOrderById", () => {
-        it("should return an order with its items", async () => {
+        it("should return an order with items", async () => {
             mockedFindOrderById.mockResolvedValue({
                 id: "order-1",
                 orderNumber: "QC-001",
                 userId: "user-1",
-                status: "PENDING_PAYMENT",
-                subtotal: 100,
-                total: 100,
+                status: "CONFIRMED",
+                subtotal: 250,
+                total: 250,
                 createdAt: new Date(),
                 updatedAt: new Date()
             });
 
             mockedFindOrderItems.mockResolvedValue([
                 {
-                    id: "order-item-1",
+                    id: "item-1",
                     orderId: "order-1",
                     productId: "product-1",
-                    productName: "Test Product",
+                    productName: "Product One",
                     sku: "SKU-001",
-                    quantity: 1,
+                    quantity: 2,
                     unitPrice: 100,
-                    lineTotal: 100,
+                    lineTotal: 200,
+                    createdAt: new Date()
+                },
+                {
+                    id: "item-2",
+                    orderId: "order-1",
+                    productId: "product-2",
+                    productName: "Product Two",
+                    sku: "SKU-002",
+                    quantity: 1,
+                    unitPrice: 50,
+                    lineTotal: 50,
                     createdAt: new Date()
                 }
             ]);
@@ -783,16 +905,22 @@ describe("Order Service", () => {
                 "order-1"
             );
 
+            expect(result).toEqual(
+                expect.objectContaining({
+                    id: "order-1",
+                    userId: "user-1",
+                    status: "CONFIRMED",
+                    subtotal: 250,
+                    total: 250
+                })
+            );
+
             expect(
                 result.items
-            ).toHaveLength(1);
-
-            expect(
-                result.items?.[0].productId
-            ).toBe("product-1");
+            ).toHaveLength(2);
         });
 
-        it("should return 404 when the order does not exist", async () => {
+        it("should reject an unknown order", async () => {
             mockedFindOrderById.mockResolvedValue(
                 null
             );
@@ -800,7 +928,7 @@ describe("Order Service", () => {
             await expect(
                 getUserOrderById(
                     "user-1",
-                    "order-1"
+                    "unknown-order"
                 )
             ).rejects.toMatchObject({
                 message: "Order not found",
@@ -812,12 +940,12 @@ describe("Order Service", () => {
             ).not.toHaveBeenCalled();
         });
 
-        it("should return 404 when the order belongs to another user", async () => {
+        it("should not allow another user to access an order", async () => {
             mockedFindOrderById.mockResolvedValue({
                 id: "order-1",
                 orderNumber: "QC-001",
-                userId: "user-2",
-                status: "PENDING_PAYMENT",
+                userId: "user-1",
+                status: "CONFIRMED",
                 subtotal: 100,
                 total: 100,
                 createdAt: new Date(),
@@ -826,7 +954,7 @@ describe("Order Service", () => {
 
             await expect(
                 getUserOrderById(
-                    "user-1",
+                    "user-2",
                     "order-1"
                 )
             ).rejects.toMatchObject({
