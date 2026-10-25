@@ -1,10 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import {
+    cancelOrder,
     createOrder,
     getOrderById,
     getOrders
 } from "../../controllers/order.controller";
 import {
+    cancelOrder as cancelOrderService,
     createNewOrder,
     getUserOrderById,
     getUserOrdersPaginated
@@ -16,6 +18,7 @@ const mockedCreateNewOrder = jest.mocked(createNewOrder);
 const mockedGetUserOrdersPaginated =
     jest.mocked(getUserOrdersPaginated);
 const mockedGetUserOrderById = jest.mocked(getUserOrderById);
+const mockedCancelOrderService = jest.mocked(cancelOrderService);
 
 describe("Order Controller", () => {
     let request: Partial<Request>;
@@ -577,6 +580,74 @@ describe("Order Controller", () => {
             );
 
             expect(mockedGetUserOrderById).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("cancelOrder", () => {
+        it("should cancel a pending order for the authenticated user", async () => {
+            request.userId = "user-1";
+            request.params = { orderId: "order-1" };
+
+            mockedCancelOrderService.mockResolvedValue({
+                id: "order-1",
+                orderNumber: "QC-001",
+                userId: "user-1",
+                status: "CANCELLED",
+                subtotal: 100,
+                total: 100,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            });
+
+            await cancelOrder(
+                request as Request,
+                response as Response,
+                next
+            );
+
+            expect(
+                mockedCancelOrderService
+            ).toHaveBeenCalledWith(
+                "user-1",
+                "order-1"
+            );
+
+            expect(response.status).toHaveBeenCalledWith(
+                200
+            );
+
+            expect(response.json).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    success: true,
+                    data: expect.objectContaining({
+                        status: "CANCELLED"
+                    })
+                })
+            );
+
+            expect(next).not.toHaveBeenCalled();
+        });
+
+        it("should pass cancellation errors to next", async () => {
+            request.userId = "user-1";
+            request.params = { orderId: "order-1" };
+
+            const error = new Error(
+                "Confirmed orders cannot be cancelled"
+            );
+
+            mockedCancelOrderService.mockRejectedValue(
+                error
+            );
+
+            await cancelOrder(
+                request as Request,
+                response as Response,
+                next
+            );
+
+            expect(next).toHaveBeenCalledWith(error);
+            expect(response.status).not.toHaveBeenCalled();
         });
     });
 });

@@ -17,6 +17,12 @@ import {
 } from "../clients/payment.client";
 
 import {
+    reserveInventory,
+    confirmInventory,
+    releaseInventory
+} from "../clients/inventory.client";
+
+import {
     CreateOrderDto
 } from "../dtos/order.dto";
 
@@ -142,6 +148,76 @@ const validateQuantity = (
     }
 };
 
+const releaseOrderInventory = async (
+    orderId: string
+): Promise<void> => {
+    try {
+        await releaseInventory(orderId);
+    } catch (error) {
+        /*
+         * A 404 means there is no reservation to release. That is
+         * safe for legacy orders created before reservation support.
+         */
+        if (
+            error instanceof AppError &&
+            error.statusCode === 404
+        ) {
+            return;
+        }
+
+        throw error;
+    }
+};
+
+const reserveOrderInventory = async (
+    orderId: string,
+    items: OrderItemData[]
+): Promise<void> => {
+    try {
+        for (const item of items) {
+            await reserveInventory(
+                orderId,
+                item.productId,
+                item.quantity
+            );
+        }
+    } catch (error) {
+        /*
+         * Compensate reservations that succeeded before the failure.
+         * The release call is order-wide and idempotent, so retrying
+         * is safe and cannot restore stock twice.
+         */
+        try {
+            await releaseOrderInventory(orderId);
+        } catch (releaseError) {
+            console.error(
+                "Failed to release inventory after reservation failure:",
+                releaseError
+            );
+
+            throw new AppError(
+                "Unable to reserve inventory and release previous reservations",
+                500
+            );
+        }
+
+        const cancelled =
+            await updateOrderStatus(
+                orderId,
+                "CANCELLED"
+            );
+
+        if (!cancelled) {
+            throw new AppError(
+                "Inventory reservation failed and order could not be cancelled",
+                500
+            );
+        }
+
+        throw error;
+    }
+};
+
 const processOrderPayment = async (
     order: Order,
     paymentMethod:
@@ -160,14 +236,55 @@ const processOrderPayment = async (
     if (
         result.status !== "SUCCESS"
     ) {
-        await updateOrderStatus(
-            order.id,
-            "CANCELLED"
-        );
+        try {
+            await releaseOrderInventory(order.id);
+        } catch (error) {
+            console.error(
+                "Failed to release inventory after payment failure:",
+                error
+            );
+
+            throw new AppError(
+                "Payment failed and inventory could not be released",
+                500
+            );
+        }
+
+        const cancelled =
+            await updateOrderStatus(
+                order.id,
+                "CANCELLED"
+            );
+
+        if (!cancelled) {
+            throw new AppError(
+                "Payment failed and order could not be cancelled",
+                500
+            );
+        }
 
         throw new AppError(
             "Payment failed",
             400
+        );
+    }
+
+    /*
+     * Finalize the reservation before marking the order confirmed.
+     * If this fails the order stays PENDING_PAYMENT, so we never
+     * report a confirmed order whose stock was not finalized.
+     */
+    try {
+        await confirmInventory(order.id);
+    } catch (error) {
+        console.error(
+            "Failed to confirm inventory after successful payment:",
+            error
+        );
+
+        throw new AppError(
+            "Payment succeeded but inventory could not be confirmed",
+            500
         );
     }
 
@@ -276,6 +393,11 @@ const createCartOrder = async (
         )
     };
 
+    await reserveOrderInventory(
+        order.id,
+        orderItems
+    );
+
     await processOrderPayment(
         order,
         paymentMethod
@@ -365,6 +487,11 @@ const createBuyNowOrder = async (
         ]
     };
 
+    await reserveOrderInventory(
+        order.id,
+        [orderItem]
+    );
+
     await processOrderPayment(
         order,
         paymentMethod
@@ -429,6 +556,62 @@ export const createNewOrder = async (
         idempotencyKey,
         dto.paymentMethod
     );
+};
+
+export const cancelOrder = async (
+    userId: string,
+    orderId: string
+): Promise<Order> => {
+    const order = await getUserOrderById(
+        userId,
+        orderId
+    );
+
+    if (order.status === "CANCELLED") {
+        return order;
+    }
+
+    if (order.status === "CONFIRMED") {
+        /*
+         * The payment service has no refund transition, so allowing
+         * this would restore stock without refunding the customer.
+         */
+        throw new AppError(
+            "Confirmed orders cannot be cancelled",
+            409
+        );
+    }
+
+    try {
+        await releaseOrderInventory(orderId);
+    } catch (error) {
+        console.error(
+            "Failed to release inventory for cancellation:",
+            error
+        );
+
+        throw new AppError(
+            "Inventory could not be released; order was not cancelled",
+            502
+        );
+    }
+
+    const updated = await updateOrderStatus(
+        orderId,
+        "CANCELLED"
+    );
+
+    if (!updated) {
+        throw new AppError(
+            "Order could not be cancelled",
+            500
+        );
+    }
+
+    return {
+        ...order,
+        status: "CANCELLED"
+    };
 };
 
 export const getUserOrdersPaginated = async (

@@ -4,6 +4,7 @@ import type {
     Response
 } from "express";
 import {
+    cancelOrder as cancelOrderService,
     createNewOrder,
     getUserOrderById,
     getUserOrdersPaginated
@@ -102,6 +103,44 @@ export const createOrder = async (
         );
 
         response.status(201).json({
+            success: true,
+            data: order
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const cancelOrder = async (
+    request: Request,
+    response: Response,
+    next: NextFunction
+): Promise<void> => {
+    try {
+        const userId = getAuthenticatedUserId(request);
+
+        const orderId = Array.isArray(
+            request.params.orderId
+        )
+            ? request.params.orderId[0]
+            : request.params.orderId;
+
+        if (
+            !orderId ||
+            orderId.trim() === ""
+        ) {
+            throw new AppError(
+                "Order ID is required",
+                400
+            );
+        }
+
+        const order = await cancelOrderService(
+            userId,
+            orderId
+        );
+
+        response.status(200).json({
             success: true,
             data: order
         });

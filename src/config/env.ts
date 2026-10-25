@@ -116,6 +116,10 @@ export const env = {
 
         payment: requiredEnv(
             "PAYMENT_SERVICE_URL"
+        ),
+
+        inventory: requiredEnv(
+            "INVENTORY_SERVICE_URL"
         )
     }
 };

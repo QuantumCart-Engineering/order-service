@@ -12,6 +12,12 @@ import {
 } from "../../clients/payment.client";
 
 import {
+    reserveInventory,
+    confirmInventory,
+    releaseInventory
+} from "../../clients/inventory.client";
+
+import {
     createOrder,
     findOrderById,
     findOrderItems,
@@ -21,14 +27,18 @@ import {
 } from "../../repositories/order.repository";
 
 import {
+    cancelOrder,
     createNewOrder,
     getUserOrderById,
     getUserOrdersPaginated
 } from "../../services/order.service";
 
+import { AppError } from "../../utils/app-error";
+
 jest.mock("../../clients/product.client");
 jest.mock("../../clients/cart.client");
 jest.mock("../../clients/payment.client");
+jest.mock("../../clients/inventory.client");
 jest.mock("../../repositories/order.repository");
 
 const mockedGetProductById = jest.mocked(
@@ -45,6 +55,18 @@ const mockedCheckoutCart = jest.mocked(
 
 const mockedCreatePayment = jest.mocked(
     createPayment
+);
+
+const mockedReserveInventory = jest.mocked(
+    reserveInventory
+);
+
+const mockedConfirmInventory = jest.mocked(
+    confirmInventory
+);
+
+const mockedReleaseInventory = jest.mocked(
+    releaseInventory
 );
 
 const mockedCreateOrder = jest.mocked(
@@ -105,6 +127,26 @@ describe("Order Service", () => {
         mockedUpdateOrderStatus.mockResolvedValue(
             true
         );
+
+        mockedReserveInventory.mockResolvedValue({
+            inventory: {
+                id: "inventory-1",
+                product_id: "product-1",
+                available_quantity: 29,
+                reserved_quantity: 1
+            },
+            reservation: {
+                id: "reservation-1",
+                product_id: "product-1",
+                order_id: "mock-order-id",
+                quantity: 1,
+                status: "RESERVED"
+            }
+        });
+
+        mockedConfirmInventory.mockResolvedValue();
+
+        mockedReleaseInventory.mockResolvedValue();
     });
 
     describe("createNewOrder - CART", () => {
@@ -315,6 +357,36 @@ describe("Order Service", () => {
                 expect.any(String),
                 "CONFIRMED"
             );
+
+            expect(
+                mockedReserveInventory
+            ).toHaveBeenCalledTimes(2);
+
+            expect(
+                mockedReserveInventory
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "product-1",
+                2
+            );
+
+            expect(
+                mockedReserveInventory
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "product-2",
+                1
+            );
+
+            expect(
+                mockedConfirmInventory
+            ).toHaveBeenCalledWith(
+                expect.any(String)
+            );
+
+            expect(
+                mockedReleaseInventory
+            ).not.toHaveBeenCalled();
 
             expect(
                 mockedCheckoutCart
@@ -617,6 +689,24 @@ describe("Order Service", () => {
             );
 
             expect(
+                mockedReserveInventory
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "product-1",
+                2
+            );
+
+            expect(
+                mockedConfirmInventory
+            ).toHaveBeenCalledWith(
+                expect.any(String)
+            );
+
+            expect(
+                mockedReleaseInventory
+            ).not.toHaveBeenCalled();
+
+            expect(
                 mockedUpdateOrderStatus
             ).toHaveBeenCalledWith(
                 expect.any(String),
@@ -699,6 +789,299 @@ describe("Order Service", () => {
                 "UPI",
                 expect.any(String)
             );
+        });
+    });
+
+    describe("createNewOrder - inventory lifecycle", () => {
+        const mockActiveProduct = () => {
+            mockedGetProductById.mockResolvedValue({
+                id: "product-1",
+                name: "Test Product",
+                sku: "SKU-001",
+                price: 100,
+                status: "ACTIVE"
+            });
+        };
+
+        const mockCreatedOrder = () => {
+            mockedCreateOrder.mockImplementation(
+                async (order) => ({
+                    id: order.id,
+                    orderNumber: order.orderNumber,
+                    userId: order.userId,
+                    status: order.status,
+                    subtotal: order.subtotal,
+                    total: order.total,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                })
+            );
+        };
+
+        it("should release the reservation exactly once when payment fails", async () => {
+            mockActiveProduct();
+            mockCreatedOrder();
+
+            mockedCreatePayment.mockResolvedValue({
+                paymentId: 2,
+                orderId: "mock-order-id",
+                amount: 100,
+                currency: "INR",
+                paymentMethod: "UPI",
+                status: "FAILED"
+            });
+
+            await expect(
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 1
+                    },
+                    null
+                )
+            ).rejects.toMatchObject({
+                message: "Payment failed",
+                statusCode: 400
+            });
+
+            expect(
+                mockedReserveInventory
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                mockedReleaseInventory
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                mockedReleaseInventory
+            ).toHaveBeenCalledWith(
+                expect.any(String)
+            );
+
+            expect(
+                mockedConfirmInventory
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedUpdateOrderStatus
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "CANCELLED"
+            );
+        });
+
+        it("should compensate and cancel the order when stock is insufficient", async () => {
+            mockActiveProduct();
+            mockCreatedOrder();
+
+            mockedReserveInventory.mockRejectedValueOnce(
+                new AppError(
+                    "Insufficient inventory",
+                    409
+                )
+            );
+
+            await expect(
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 31
+                    },
+                    null
+                )
+            ).rejects.toMatchObject({
+                message: "Insufficient inventory",
+                statusCode: 409
+            });
+
+            expect(
+                mockedCreateOrder
+            ).toHaveBeenCalled();
+
+            expect(
+                mockedReleaseInventory
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                mockedUpdateOrderStatus
+            ).toHaveBeenCalledWith(
+                expect.any(String),
+                "CANCELLED"
+            );
+
+            expect(
+                mockedCreatePayment
+            ).not.toHaveBeenCalled();
+        });
+
+        it("should not mark the order confirmed when inventory confirmation fails", async () => {
+            mockActiveProduct();
+            mockCreatedOrder();
+
+            mockedConfirmInventory.mockRejectedValueOnce(
+                new AppError(
+                    "Inventory reservation not found",
+                    404
+                )
+            );
+
+            await expect(
+                createNewOrder(
+                    "user-1",
+                    {
+                        source: "BUY_NOW",
+                        productId: "product-1",
+                        quantity: 1
+                    },
+                    null
+                )
+            ).rejects.toMatchObject({
+                message:
+                    "Payment succeeded but inventory could not be confirmed",
+                statusCode: 500
+            });
+
+            expect(
+                mockedUpdateOrderStatus
+            ).not.toHaveBeenCalledWith(
+                expect.any(String),
+                "CONFIRMED"
+            );
+        });
+    });
+
+    describe("cancelOrder", () => {
+        const pendingOrder = {
+            id: "order-1",
+            orderNumber: "QC-001",
+            userId: "user-1",
+            status: "PENDING_PAYMENT" as const,
+            subtotal: 100,
+            total: 100,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        beforeEach(() => {
+            mockedFindOrderById.mockResolvedValue(
+                pendingOrder
+            );
+
+            mockedFindOrderItems.mockResolvedValue([
+                {
+                    id: "item-1",
+                    orderId: "order-1",
+                    productId: "product-1",
+                    productName: "Test Product",
+                    sku: "SKU-001",
+                    quantity: 1,
+                    unitPrice: 100,
+                    lineTotal: 100,
+                    createdAt: new Date()
+                }
+            ]);
+        });
+
+        it("should release inventory exactly once when cancelling a pending order", async () => {
+            const result = await cancelOrder(
+                "user-1",
+                "order-1"
+            );
+
+            expect(
+                mockedReleaseInventory
+            ).toHaveBeenCalledTimes(1);
+
+            expect(
+                mockedReleaseInventory
+            ).toHaveBeenCalledWith("order-1");
+
+            expect(
+                mockedUpdateOrderStatus
+            ).toHaveBeenCalledWith(
+                "order-1",
+                "CANCELLED"
+            );
+
+            expect(
+                mockedConfirmInventory
+            ).not.toHaveBeenCalled();
+
+            expect(result.status).toBe(
+                "CANCELLED"
+            );
+        });
+
+        it("should be idempotent for an already cancelled order", async () => {
+            mockedFindOrderById.mockResolvedValue({
+                ...pendingOrder,
+                status: "CANCELLED"
+            });
+
+            const result = await cancelOrder(
+                "user-1",
+                "order-1"
+            );
+
+            expect(result.status).toBe(
+                "CANCELLED"
+            );
+
+            expect(
+                mockedReleaseInventory
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedUpdateOrderStatus
+            ).not.toHaveBeenCalled();
+        });
+
+        it("should reject cancelling a confirmed order without touching inventory", async () => {
+            mockedFindOrderById.mockResolvedValue({
+                ...pendingOrder,
+                status: "CONFIRMED"
+            });
+
+            await expect(
+                cancelOrder("user-1", "order-1")
+            ).rejects.toMatchObject({
+                message:
+                    "Confirmed orders cannot be cancelled",
+                statusCode: 409
+            });
+
+            expect(
+                mockedReleaseInventory
+            ).not.toHaveBeenCalled();
+
+            expect(
+                mockedUpdateOrderStatus
+            ).not.toHaveBeenCalled();
+        });
+
+        it("should not cancel the order when inventory release fails", async () => {
+            mockedReleaseInventory.mockRejectedValueOnce(
+                new AppError(
+                    "Inventory service unavailable",
+                    502
+                )
+            );
+
+            await expect(
+                cancelOrder("user-1", "order-1")
+            ).rejects.toMatchObject({
+                message:
+                    "Inventory could not be released; order was not cancelled",
+                statusCode: 502
+            });
+
+            expect(
+                mockedUpdateOrderStatus
+            ).not.toHaveBeenCalled();
         });
     });
 
